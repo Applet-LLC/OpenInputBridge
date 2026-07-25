@@ -3,10 +3,12 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
 // See ioctl.h and docs/PROTOCOL.md. IOCTL_GET_HARDWARE_ID (M2), IOCTL_SET_FILTER/GET_FILTER/
-// SET_EVENT/READ and the stroke dispatch used by kbdfilter.c/mousefilter.c (M3) are
-// implemented here. IOCTL_WRITE (M4) and IOCTL_SET/GET_PRECEDENCE (M5) remain TODO.
+// SET_EVENT/READ and the stroke dispatch used by kbdfilter.c/mousefilter.c (M3), and
+// IOCTL_WRITE (M4) are implemented here. IOCTL_SET/GET_PRECEDENCE (M5) remains TODO.
 
 #include "ioctl.h"
+#include "kbdfilter.h"
+#include "mousefilter.h"
 
 static VOID OibFileContextQueuePush(_Inout_ POIB_FILE_CONTEXT FileContext, _In_ PVOID StrokeData, _In_ SIZE_T StrokeSize, _Out_ PBOOLEAN BecameNonEmpty);
 static ULONG OibFileContextQueueDrain(_Inout_ POIB_FILE_CONTEXT FileContext, _Out_writes_bytes_(OutputBufferSize) PVOID OutputBuffer, _In_ SIZE_T OutputBufferSize, _In_ SIZE_T StrokeSize);
@@ -43,10 +45,13 @@ OibCtlEvtIoDeviceControl(
         OibCtlHandleRead(Request, fileObject, OutputBufferLength);
         return;
 
+    case IOCTL_WRITE:
+        OibCtlHandleWrite(Request, WdfIoQueueGetDevice(Queue), InputBufferLength);
+        return;
+
     case IOCTL_SET_PRECEDENCE:
     case IOCTL_GET_PRECEDENCE:
-    case IOCTL_WRITE:
-        // TODO: IOCTL_WRITE lands in M4, precedence in M5.
+        // TODO: lands in M5.
         WdfRequestComplete(Request, STATUS_NOT_IMPLEMENTED);
         return;
 
@@ -131,6 +136,94 @@ OibCtlHandleGetHardwareId(
     }
 
     WdfRequestCompleteWithInformation(Request, status, bytesReturned);
+}
+
+VOID
+OibCtlHandleWrite(
+    _In_ WDFREQUEST Request,
+    _In_ WDFDEVICE ControlDevice,
+    _In_ size_t InputBufferLength
+    )
+{
+    POIB_CONTROL_DEVICE_CONTEXT ctlContext;
+    WDFDEVICE filterDevice;
+    NTSTATUS status;
+    PVOID inputBuffer = NULL;
+    size_t inputBufferSize = 0;
+    size_t strokeSize;
+    ULONG strokeCount;
+    ULONG_PTR bytesWritten = 0;
+
+    ctlContext = OibGetControlDeviceContext(ControlDevice);
+    strokeSize = ctlContext->IsKeyboard ? sizeof(KEYBOARD_INPUT_DATA) : sizeof(MOUSE_INPUT_DATA);
+
+    if (InputBufferLength != 0) {
+        status = WdfRequestRetrieveInputBuffer(Request, 0, &inputBuffer, &inputBufferSize);
+        if (!NT_SUCCESS(status)) {
+            WdfRequestComplete(Request, status);
+            return;
+        }
+    }
+
+    strokeCount = (ULONG)(inputBufferSize / strokeSize);
+
+    status = OibSlotAcquireFilterDevice(ctlContext->SlotIndex, &filterDevice);
+    if (NT_SUCCESS(status)) {
+        // Injecting synthetic input and releasing a stroke previously captured via
+        // IOCTL_READ are the same operation here: both just hand a raw stroke array to the
+        // saved ClassService, exactly as if the port/HID driver below had reported it — see
+        // docs/PROTOCOL.md.
+        if (strokeCount > 0) {
+            ULONG consumed = 0;
+
+            if (ctlContext->IsKeyboard) {
+                POIB_KBD_FILTER_CONTEXT kbdContext = OibGetKbdFilterContext(filterDevice);
+
+                if (kbdContext->UpperConnectData.ClassService != NULL) {
+                    PKEYBOARD_INPUT_DATA strokes = (PKEYBOARD_INPUT_DATA)inputBuffer;
+
+#pragma warning(push)
+#pragma warning(disable:4055) // PVOID -> PSERVICE_CALLBACK_ROUTINE conversion, same as kbdfilter.c
+                    (*(PSERVICE_CALLBACK_ROUTINE)(ULONG_PTR)kbdContext->UpperConnectData.ClassService)(
+                        kbdContext->UpperConnectData.ClassDeviceObject,
+                        strokes,
+                        strokes + strokeCount,
+                        &consumed
+                        );
+#pragma warning(pop)
+                }
+            } else {
+                POIB_MOU_FILTER_CONTEXT mouContext = OibGetMouFilterContext(filterDevice);
+
+                if (mouContext->UpperConnectData.ClassService != NULL) {
+                    PMOUSE_INPUT_DATA strokes = (PMOUSE_INPUT_DATA)inputBuffer;
+
+#pragma warning(push)
+#pragma warning(disable:4055)
+                    (*(PSERVICE_CALLBACK_ROUTINE)(ULONG_PTR)mouContext->UpperConnectData.ClassService)(
+                        mouContext->UpperConnectData.ClassDeviceObject,
+                        strokes,
+                        strokes + strokeCount,
+                        &consumed
+                        );
+#pragma warning(pop)
+                }
+            }
+
+            bytesWritten = (ULONG_PTR)consumed * strokeSize;
+        }
+
+        OibSlotReleaseFilterDeviceReference(filterDevice);
+        status = STATUS_SUCCESS;
+    } else {
+        // No physical device currently assigned to this slot: there's nothing to inject
+        // into, so succeed with zero bytes written rather than fail — same graceful
+        // degradation as OibCtlHandleGetHardwareId, see docs/PROTOCOL.md.
+        status = STATUS_SUCCESS;
+        bytesWritten = 0;
+    }
+
+    WdfRequestCompleteWithInformation(Request, status, bytesWritten);
 }
 
 VOID

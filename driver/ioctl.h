@@ -32,8 +32,8 @@
 // One record's worth of raw stroke storage: big enough for either a KEYBOARD_INPUT_DATA or a
 // MOUSE_INPUT_DATA. The queue stores raw bytes (not a tagged union) because a given slot's
 // queue only ever holds one kind (keyboard slots only ever see KEYBOARD_INPUT_DATA, and vice
-// versa), so tagging would be redundant — the record size is fixed per file context via
-// OibGetStrokeRecordSize().
+// versa), so tagging would be redundant — callers derive the record size themselves from
+// IsKeyboard (sizeof(KEYBOARD_INPUT_DATA) vs sizeof(MOUSE_INPUT_DATA)).
 typedef union _OIB_STROKE_RECORD
 {
     KEYBOARD_INPUT_DATA Keyboard;
@@ -107,7 +107,15 @@ VOID OibCtlHandleRead(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject, _I
 VOID OibDispatchKeyboardStroke(_In_ ULONG SlotIndex, _In_ PKEYBOARD_INPUT_DATA Stroke, _Out_ PBOOLEAN Captured);
 VOID OibDispatchMouseStroke(_In_ ULONG SlotIndex, _In_ PMOUSE_INPUT_DATA Stroke, _Out_ PBOOLEAN Captured);
 
-// TODO(M4/M5):
-//   IOCTL_WRITE              -> call saved ClassService for this slot's FDO (M4)
+// IOCTL_WRITE (M4): resolves the control device's assigned slot (if any) to its filter FDO
+// and calls the saved UpperConnectData.ClassService directly with the caller-supplied array
+// of raw stroke records — injecting synthetic input and releasing a previously captured
+// stroke (from IOCTL_READ) are the same operation as far as the wire protocol and this
+// handler are concerned; see docs/PROTOCOL.md. An empty slot (no physical device currently
+// assigned) succeeds with zero bytes written rather than failing, matching
+// OibCtlHandleGetHardwareId's precedent.
+VOID OibCtlHandleWrite(_In_ WDFREQUEST Request, _In_ WDFDEVICE ControlDevice, _In_ size_t InputBufferLength);
+
+// TODO(M5):
 //   IOCTL_SET/GET_PRECEDENCE -> per-file-object precedence; ordering policy pending
 //                                black-box validation against the real driver (M5)
