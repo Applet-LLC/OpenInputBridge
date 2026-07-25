@@ -15,6 +15,7 @@
 #pragma once
 
 #include "driver.h"
+#include "slots.h"
 #include <kbdmou.h>
 #include <ntddkbd.h>
 
@@ -25,13 +26,17 @@ typedef struct _OIB_KBD_FILTER_CONTEXT
 {
     CONNECT_DATA UpperConnectData;
 
-    // TODO(M2): slot index (0..OIB_KEYBOARD_SLOT_COUNT-1) this FDO is assigned to in the
-    // global slot table, set on successful OibKbdEvtDeviceAdd and cleared on removal.
+    // Slot index (0..OIB_KEYBOARD_SLOT_COUNT-1) this FDO is assigned to in the global slot
+    // table, or OIB_SLOT_INDEX_NONE if every keyboard slot was already taken when this device
+    // arrived (an 11th keyboard — see slots.h). Always explicitly set from OibSlotAssign's
+    // out-param (never left at its zero-initialized default, which would alias slot 0).
+    ULONG SlotIndex;
 } OIB_KBD_FILTER_CONTEXT, *POIB_KBD_FILTER_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(OIB_KBD_FILTER_CONTEXT, OibGetKbdFilterContext)
 
 EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL OibKbdEvtInternalDeviceControl;
+EVT_WDF_OBJECT_CONTEXT_CLEANUP OibKbdEvtFilterDeviceCleanup;
 
 // AddDevice for the keyboard filter FDO. Called from OibEvtDeviceAdd (driver.c) once it has
 // determined DeviceInit targets the Keyboard device setup class.

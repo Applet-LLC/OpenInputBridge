@@ -18,6 +18,8 @@ OibMouEvtDeviceAdd(
     WDF_OBJECT_ATTRIBUTES deviceAttributes;
     WDF_IO_QUEUE_CONFIG ioQueueConfig;
     WDFDEVICE hDevice;
+    POIB_MOU_FILTER_CONTEXT filterContext;
+    ULONG slotIndex;
 
     UNREFERENCED_PARAMETER(Driver);
 
@@ -25,6 +27,7 @@ OibMouEvtDeviceAdd(
     WdfDeviceInitSetDeviceType(DeviceInit, FILE_DEVICE_MOUSE);
 
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&deviceAttributes, OIB_MOU_FILTER_CONTEXT);
+    deviceAttributes.EvtCleanupCallback = OibMouEvtFilterDeviceCleanup;
 
     status = WdfDeviceCreate(&DeviceInit, &deviceAttributes, &hDevice);
     if (!NT_SUCCESS(status)) {
@@ -40,10 +43,26 @@ OibMouEvtDeviceAdd(
         return status;
     }
 
-    // TODO(M2): assign this FDO to a free mouse slot
-    // (OIB_KEYBOARD_SLOT_COUNT..OIB_DEVICE_SLOT_COUNT-1) in the global slot table (slots.c).
+    // Best-effort: if every mouse slot is already taken (an 11th mouse), this device still
+    // attaches and filters/passes through normally, it's just unreachable via any
+    // \\.\interceptionNN control device until a slot frees up. Not a device-creation failure.
+    (VOID) OibSlotAssign(FALSE, hDevice, &slotIndex);
+
+    filterContext = OibGetMouFilterContext(hDevice);
+    filterContext->SlotIndex = slotIndex;
 
     return STATUS_SUCCESS;
+}
+
+VOID
+OibMouEvtFilterDeviceCleanup(
+    _In_ WDFOBJECT Device
+    )
+{
+    POIB_MOU_FILTER_CONTEXT filterContext = OibGetMouFilterContext((WDFDEVICE)Device);
+
+    // Safe even if OibSlotAssign never succeeded for this device (OIB_SLOT_INDEX_NONE).
+    OibSlotRelease(filterContext->SlotIndex);
 }
 
 VOID

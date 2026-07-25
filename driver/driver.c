@@ -11,6 +11,7 @@
 #include "kbdfilter.h"
 #include "mousefilter.h"
 #include "ioctl.h"
+#include "slots.h"
 
 #include <ntstrsafe.h>
 
@@ -55,6 +56,14 @@ DriverEntry(
         &driver
         );
 
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    // Must precede OibCreateControlDevices: once the control devices exist, I/O could in
+    // principle start arriving on them (or PnP could start calling OibEvtDeviceAdd) before
+    // DriverEntry returns, and both paths touch the slot table.
+    status = OibSlotTableInitialize(driver);
     if (!NT_SUCCESS(status)) {
         return status;
     }

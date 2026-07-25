@@ -2,20 +2,111 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// See slots.h. Implementation lands in M2. This is the piece of the design with no direct
-// Microsoft sample precedent (see project plan, architecture note "3. 常時20個制約への対応").
+// See slots.h. A single spinlock-protected array is enough here: assignment/release only
+// happens on PnP arrival/removal (infrequent), and lookups (OibSlotAcquireFilterDevice) hold
+// the lock only long enough to copy a handle and take a reference, never while touching the
+// filter device itself.
 
 #include "slots.h"
 
-// TODO(M2):
-//   - Global slot table: OIB_DEVICE_SLOT_COUNT entries, each holding either NULL (unassigned)
-//     or a pointer to the currently-attached filter FDO's device context.
-//   - Guarded by a single WDFSPINLOCK (PnP arrival/removal on one thread, control-device I/O
-//     on another).
-//   - OibSlotAssign(isKeyboard, fdoContext): first-fit into 0..OIB_KEYBOARD_SLOT_COUNT-1 for
-//     keyboards or OIB_KEYBOARD_SLOT_COUNT..OIB_DEVICE_SLOT_COUNT-1 for mice; returns
-//     STATUS_DEVICE_NOT_READY (or similar) if no free slot (>10 of a kind attached).
-//   - OibSlotRelease(slotIndex): clears the assignment on filter FDO removal; the control
-//     device itself is NOT destroyed/unlinked, only its association with a physical device.
-//   - OibSlotGetFdoContext(slotIndex): NULL if unassigned (control-device handlers must treat
-//     this as "succeed with inert/empty results", not as an error — see docs/PROTOCOL.md).
+typedef struct _OIB_SLOT_ENTRY
+{
+    WDFDEVICE FilterDevice; // NULL if unassigned.
+} OIB_SLOT_ENTRY;
+
+static OIB_SLOT_ENTRY OibSlotTable[OIB_DEVICE_SLOT_COUNT];
+static WDFSPINLOCK OibSlotTableLock;
+
+NTSTATUS
+OibSlotTableInitialize(
+    _In_ WDFDRIVER Driver
+    )
+{
+    WDF_OBJECT_ATTRIBUTES attributes;
+
+    RtlZeroMemory(OibSlotTable, sizeof(OibSlotTable));
+
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ParentObject = Driver;
+
+    return WdfSpinLockCreate(&attributes, &OibSlotTableLock);
+}
+
+NTSTATUS
+OibSlotAssign(
+    _In_ BOOLEAN IsKeyboard,
+    _In_ WDFDEVICE FilterDevice,
+    _Out_ ULONG *AssignedSlotIndex
+    )
+{
+    ULONG start = IsKeyboard ? 0 : OIB_KEYBOARD_SLOT_COUNT;
+    ULONG end = IsKeyboard ? OIB_KEYBOARD_SLOT_COUNT : OIB_DEVICE_SLOT_COUNT;
+    ULONG index;
+    NTSTATUS status = STATUS_DEVICE_NOT_READY;
+
+    *AssignedSlotIndex = OIB_SLOT_INDEX_NONE;
+
+    WdfSpinLockAcquire(OibSlotTableLock);
+
+    for (index = start; index < end; index++) {
+        if (OibSlotTable[index].FilterDevice == NULL) {
+            OibSlotTable[index].FilterDevice = FilterDevice;
+            *AssignedSlotIndex = index;
+            status = STATUS_SUCCESS;
+            break;
+        }
+    }
+
+    WdfSpinLockRelease(OibSlotTableLock);
+
+    return status;
+}
+
+VOID
+OibSlotRelease(
+    _In_ ULONG SlotIndex
+    )
+{
+    if (SlotIndex >= OIB_DEVICE_SLOT_COUNT) {
+        return;
+    }
+
+    WdfSpinLockAcquire(OibSlotTableLock);
+    OibSlotTable[SlotIndex].FilterDevice = NULL;
+    WdfSpinLockRelease(OibSlotTableLock);
+}
+
+NTSTATUS
+OibSlotAcquireFilterDevice(
+    _In_ ULONG SlotIndex,
+    _Out_ WDFDEVICE *FilterDevice
+    )
+{
+    WDFDEVICE device;
+
+    if (SlotIndex >= OIB_DEVICE_SLOT_COUNT) {
+        *FilterDevice = NULL;
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    WdfSpinLockAcquire(OibSlotTableLock);
+
+    device = OibSlotTable[SlotIndex].FilterDevice;
+    if (device != NULL) {
+        WdfObjectReference(device);
+    }
+
+    WdfSpinLockRelease(OibSlotTableLock);
+
+    *FilterDevice = device;
+
+    return (device != NULL) ? STATUS_SUCCESS : STATUS_NO_SUCH_DEVICE;
+}
+
+VOID
+OibSlotReleaseFilterDeviceReference(
+    _In_ WDFDEVICE FilterDevice
+    )
+{
+    WdfObjectDereference(FilterDevice);
+}

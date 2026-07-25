@@ -19,6 +19,10 @@
 #define OIB_MOUSE_SLOT_COUNT    10
 #define OIB_DEVICE_SLOT_COUNT   (OIB_KEYBOARD_SLOT_COUNT + OIB_MOUSE_SLOT_COUNT)
 
+// Pool tag for allocations made by this driver (shows up in pool tag tools as "OIB " for
+// easy identification against other drivers' allocations when debugging).
+#define OIB_POOL_TAG 'BIO '
+
 // Per-control-device context: identifies which \Device\interceptionNN slot this WDFDEVICE is
 // (0..OIB_DEVICE_SLOT_COUNT-1), so ioctl.c's EvtIoDeviceControl can look up the slot's assigned
 // filter FDO (slots.c, M2) without re-deriving NN from the device name at request time.

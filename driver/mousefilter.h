@@ -11,6 +11,7 @@
 #pragma once
 
 #include "driver.h"
+#include "slots.h"
 #include <kbdmou.h>
 #include <ntddmou.h>
 
@@ -19,14 +20,16 @@ typedef struct _OIB_MOU_FILTER_CONTEXT
 {
     CONNECT_DATA UpperConnectData;
 
-    // TODO(M2): slot index (OIB_KEYBOARD_SLOT_COUNT..OIB_DEVICE_SLOT_COUNT-1) this FDO is
-    // assigned to in the global slot table, set on successful OibMouEvtDeviceAdd and cleared
-    // on removal.
+    // Slot index (OIB_KEYBOARD_SLOT_COUNT..OIB_DEVICE_SLOT_COUNT-1) this FDO is assigned to
+    // in the global slot table, or OIB_SLOT_INDEX_NONE if every mouse slot was already taken
+    // when this device arrived. See OIB_KBD_FILTER_CONTEXT.SlotIndex in kbdfilter.h.
+    ULONG SlotIndex;
 } OIB_MOU_FILTER_CONTEXT, *POIB_MOU_FILTER_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(OIB_MOU_FILTER_CONTEXT, OibGetMouFilterContext)
 
 EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL OibMouEvtInternalDeviceControl;
+EVT_WDF_OBJECT_CONTEXT_CLEANUP OibMouEvtFilterDeviceCleanup;
 
 // AddDevice for the mouse filter FDO. Called from OibEvtDeviceAdd (driver.c) once it has
 // determined DeviceInit targets the Mouse device setup class.

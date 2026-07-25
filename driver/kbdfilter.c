@@ -18,6 +18,8 @@ OibKbdEvtDeviceAdd(
     WDF_OBJECT_ATTRIBUTES deviceAttributes;
     WDF_IO_QUEUE_CONFIG ioQueueConfig;
     WDFDEVICE hDevice;
+    POIB_KBD_FILTER_CONTEXT filterContext;
+    ULONG slotIndex;
 
     UNREFERENCED_PARAMETER(Driver);
 
@@ -26,6 +28,7 @@ OibKbdEvtDeviceAdd(
     WdfDeviceInitSetDeviceType(DeviceInit, FILE_DEVICE_KEYBOARD);
 
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&deviceAttributes, OIB_KBD_FILTER_CONTEXT);
+    deviceAttributes.EvtCleanupCallback = OibKbdEvtFilterDeviceCleanup;
 
     status = WdfDeviceCreate(&DeviceInit, &deviceAttributes, &hDevice);
     if (!NT_SUCCESS(status)) {
@@ -43,11 +46,26 @@ OibKbdEvtDeviceAdd(
         return status;
     }
 
-    // TODO(M2): assign this FDO to a free keyboard slot (0..OIB_KEYBOARD_SLOT_COUNT-1) in the
-    // global slot table (slots.c), so the corresponding \Device\interceptionNN control device
-    // can route IOCTLs to it.
+    // Best-effort: if every keyboard slot is already taken (an 11th keyboard), this device
+    // still attaches and filters/passes through normally, it's just unreachable via any
+    // \\.\interceptionNN control device until a slot frees up. Not a device-creation failure.
+    (VOID) OibSlotAssign(TRUE, hDevice, &slotIndex);
+
+    filterContext = OibGetKbdFilterContext(hDevice);
+    filterContext->SlotIndex = slotIndex;
 
     return STATUS_SUCCESS;
+}
+
+VOID
+OibKbdEvtFilterDeviceCleanup(
+    _In_ WDFOBJECT Device
+    )
+{
+    POIB_KBD_FILTER_CONTEXT filterContext = OibGetKbdFilterContext((WDFDEVICE)Device);
+
+    // Safe even if OibSlotAssign never succeeded for this device (OIB_SLOT_INDEX_NONE).
+    OibSlotRelease(filterContext->SlotIndex);
 }
 
 VOID
