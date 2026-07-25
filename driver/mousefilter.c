@@ -3,10 +3,11 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
 // See mousefilter.h. Mirrors kbdfilter.c using IOCTL_INTERNAL_MOUSE_CONNECT and
-// MOUSE_INPUT_DATA instead of the keyboard equivalents. M1 scope: attach as an upper filter
-// and pass every mouse event through unmodified.
+// MOUSE_INPUT_DATA instead of the keyboard equivalents, including M3's per-record capture
+// dispatch (ioctl.c's OibDispatchMouseStroke).
 
 #include "mousefilter.h"
+#include "ioctl.h"
 
 NTSTATUS
 OibMouEvtDeviceAdd(
@@ -142,16 +143,31 @@ OibMouFilterServiceCallback(
 {
     WDFDEVICE hDevice;
     POIB_MOU_FILTER_CONTEXT filterContext;
+    PMOUSE_INPUT_DATA stroke;
 
     hDevice = WdfWdmDeviceGetWdfDeviceHandle(DeviceObject);
     filterContext = OibGetMouFilterContext(hDevice);
 
-    // TODO(M3): consult this slot's active filter bitmask; for now (M1), unconditional
-    // pass-through to mouclass's real callback — see kbdfilter.c's equivalent for the M3 plan.
-    (*(PSERVICE_CALLBACK_ROUTINE)(ULONG_PTR)filterContext->UpperConnectData.ClassService)(
-        filterContext->UpperConnectData.ClassDeviceObject,
-        InputDataStart,
-        InputDataEnd,
-        InputDataConsumed
-        );
+    // Per-record dispatch — see kbdfilter.c's OibKbFilterServiceCallback for the rationale
+    // (capture is per-record, not per-batch).
+    for (stroke = InputDataStart; stroke < InputDataEnd; stroke++) {
+        BOOLEAN captured = FALSE;
+
+        if (filterContext->SlotIndex != OIB_SLOT_INDEX_NONE) {
+            OibDispatchMouseStroke(filterContext->SlotIndex, stroke, &captured);
+        }
+
+        if (!captured) {
+            ULONG consumedByLower = 0;
+
+            (*(PSERVICE_CALLBACK_ROUTINE)(ULONG_PTR)filterContext->UpperConnectData.ClassService)(
+                filterContext->UpperConnectData.ClassDeviceObject,
+                stroke,
+                stroke + 1,
+                &consumedByLower
+                );
+        }
+    }
+
+    *InputDataConsumed = (ULONG)(InputDataEnd - InputDataStart);
 }

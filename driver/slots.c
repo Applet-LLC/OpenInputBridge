@@ -11,7 +11,12 @@
 
 typedef struct _OIB_SLOT_ENTRY
 {
-    WDFDEVICE FilterDevice; // NULL if unassigned.
+    WDFDEVICE FilterDevice; // NULL if unassigned. Guarded by OibSlotTableLock.
+
+    // Guards both OpenInstances and the Filter/UnemptyEvent/capture-queue fields of every
+    // OIB_FILE_CONTEXT linked into it (see slots.h).
+    WDFSPINLOCK InstancesLock;
+    LIST_ENTRY OpenInstances;
 } OIB_SLOT_ENTRY;
 
 static OIB_SLOT_ENTRY OibSlotTable[OIB_DEVICE_SLOT_COUNT];
@@ -22,14 +27,33 @@ OibSlotTableInitialize(
     _In_ WDFDRIVER Driver
     )
 {
+    NTSTATUS status;
     WDF_OBJECT_ATTRIBUTES attributes;
+    ULONG index;
 
     RtlZeroMemory(OibSlotTable, sizeof(OibSlotTable));
 
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
     attributes.ParentObject = Driver;
 
-    return WdfSpinLockCreate(&attributes, &OibSlotTableLock);
+    status = WdfSpinLockCreate(&attributes, &OibSlotTableLock);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    for (index = 0; index < OIB_DEVICE_SLOT_COUNT; index++) {
+        InitializeListHead(&OibSlotTable[index].OpenInstances);
+
+        WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+        attributes.ParentObject = Driver;
+
+        status = WdfSpinLockCreate(&attributes, &OibSlotTable[index].InstancesLock);
+        if (!NT_SUCCESS(status)) {
+            return status;
+        }
+    }
+
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS
@@ -109,4 +133,61 @@ OibSlotReleaseFilterDeviceReference(
     )
 {
     WdfObjectDereference(FilterDevice);
+}
+
+VOID
+OibSlotAttachFileContext(
+    _In_ ULONG SlotIndex,
+    _In_ PLIST_ENTRY FileContextLinkage
+    )
+{
+    if (SlotIndex >= OIB_DEVICE_SLOT_COUNT) {
+        return;
+    }
+
+    WdfSpinLockAcquire(OibSlotTable[SlotIndex].InstancesLock);
+    InsertTailList(&OibSlotTable[SlotIndex].OpenInstances, FileContextLinkage);
+    WdfSpinLockRelease(OibSlotTable[SlotIndex].InstancesLock);
+}
+
+VOID
+OibSlotDetachFileContext(
+    _In_ ULONG SlotIndex,
+    _In_ PLIST_ENTRY FileContextLinkage
+    )
+{
+    if (SlotIndex >= OIB_DEVICE_SLOT_COUNT) {
+        return;
+    }
+
+    WdfSpinLockAcquire(OibSlotTable[SlotIndex].InstancesLock);
+    RemoveEntryList(FileContextLinkage);
+    WdfSpinLockRelease(OibSlotTable[SlotIndex].InstancesLock);
+}
+
+VOID
+OibSlotLockInstances(
+    _In_ ULONG SlotIndex
+    )
+{
+    NT_ASSERT(SlotIndex < OIB_DEVICE_SLOT_COUNT);
+    WdfSpinLockAcquire(OibSlotTable[SlotIndex].InstancesLock);
+}
+
+VOID
+OibSlotUnlockInstances(
+    _In_ ULONG SlotIndex
+    )
+{
+    NT_ASSERT(SlotIndex < OIB_DEVICE_SLOT_COUNT);
+    WdfSpinLockRelease(OibSlotTable[SlotIndex].InstancesLock);
+}
+
+PLIST_ENTRY
+OibSlotGetInstancesListHead(
+    _In_ ULONG SlotIndex
+    )
+{
+    NT_ASSERT(SlotIndex < OIB_DEVICE_SLOT_COUNT);
+    return &OibSlotTable[SlotIndex].OpenInstances;
 }

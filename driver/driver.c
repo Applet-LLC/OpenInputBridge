@@ -154,6 +154,8 @@ OibCreateControlDevices(
     for (index = 0; index < OIB_DEVICE_SLOT_COUNT; index++) {
         PWDFDEVICE_INIT deviceInit;
         WDF_OBJECT_ATTRIBUTES attributes;
+        WDF_OBJECT_ATTRIBUTES fileAttributes;
+        WDF_FILEOBJECT_CONFIG fileConfig;
         WDF_IO_QUEUE_CONFIG queueConfig;
         WDFDEVICE controlDevice;
         POIB_CONTROL_DEVICE_CONTEXT context;
@@ -185,6 +187,13 @@ OibCreateControlDevices(
             WdfDeviceInitFree(deviceInit);
             return status;
         }
+
+        // Every open of \\.\interceptionNN gets its own OIB_FILE_CONTEXT (filter bitmask,
+        // "unempty" event, capture queue — see ioctl.h), matching the real protocol's
+        // per-context model.
+        WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&fileAttributes, OIB_FILE_CONTEXT);
+        WDF_FILEOBJECT_CONFIG_INIT(&fileConfig, OibCtlEvtFileCreate, OibCtlEvtFileClose, WDF_NO_EVENT_CALLBACK);
+        WdfDeviceInitSetFileObjectConfig(deviceInit, &fileConfig, &fileAttributes);
 
         WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, OIB_CONTROL_DEVICE_CONTEXT);
 

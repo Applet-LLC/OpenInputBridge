@@ -84,6 +84,11 @@ typedef struct _MOUSE_INPUT_DATA
 - **`IOCTL_GET_FILTER` / `IOCTL_SET_FILTER`**: `unsigned short` のビットマスク。デバイスから来たイベントの
   うち、どの種別を「捕捉してユーザーモードに渡す（＝ハードウェアには即座に反映させず保留する）」か、
   「素通しする」かを、オープンインスタンス単位・デバイス単位で制御する。
+  **実装上の注記（M3実装済み、要検証）**: どのビットが立っていればストロークを捕捉するかの正確な照合規則
+  （キーボードの `INTERCEPTION_FILTER_KEY_E0`等がrawフラグから1ビット左シフトした位置にある、等）は、
+  公開ヘッダ `interception.h` の enum 定義の構造から機械的に導出した最善推測であり、実物ドライバの挙動で
+  確認したものではない（`driver/ioctl.c` の `OibComputeKeyboardRequiredFilterBits` /
+  `OibComputeMouseRequiredFilterBits` 参照）。precedenceと同様、M5でのブラックボックス検証対象。
 - **`IOCTL_GET_PRECEDENCE` / `IOCTL_SET_PRECEDENCE`**: `int`。同一の物理デバイスを複数プロセスが同時に
   フックしている場合の優先順位。実装の詳細（複数コンテキストへの配送方式が「各々に独立コピー」なのか
   「優先順位チェーンで順に手渡し」なのか）は、公開ライブラリのソースだけからは断定できないため、

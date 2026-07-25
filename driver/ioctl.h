@@ -2,14 +2,18 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// The 8 control-device IOCTLs. Codes and semantics are defined in docs/PROTOCOL.md, derived
-// from reading (unmodified, LGPL) third_party/interception/library/interception.c — see
-// docs/CLEAN_ROOM.md for what was and wasn't consulted to arrive at these definitions.
+// The 8 control-device IOCTLs, plus the per-open-instance (WDFFILEOBJECT) state they operate
+// on: filter bitmask, "unempty" event, and capture queue. Codes and semantics are defined in
+// docs/PROTOCOL.md, derived from reading (unmodified, LGPL)
+// third_party/interception/library/interception.c — see docs/CLEAN_ROOM.md for what was and
+// wasn't consulted to arrive at these definitions.
 
 #pragma once
 
 #include "driver.h"
 #include "slots.h"
+#include <ntddkbd.h>
+#include <ntddmou.h>
 
 #define IOCTL_SET_PRECEDENCE  CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_GET_PRECEDENCE  CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
@@ -20,21 +24,90 @@
 #define IOCTL_READ            CTL_CODE(FILE_DEVICE_UNKNOWN, 0x840, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_GET_HARDWARE_ID CTL_CODE(FILE_DEVICE_UNKNOWN, 0x880, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
+// Number of stroke records the capture queue can hold before OibDispatch{Keyboard,Mouse}Stroke
+// starts dropping the oldest queued record to make room for new ones. A named, single-point
+// constant rather than a magic number scattered across the queue math below.
+#define OIB_CAPTURE_QUEUE_CAPACITY 256
+
+// One record's worth of raw stroke storage: big enough for either a KEYBOARD_INPUT_DATA or a
+// MOUSE_INPUT_DATA. The queue stores raw bytes (not a tagged union) because a given slot's
+// queue only ever holds one kind (keyboard slots only ever see KEYBOARD_INPUT_DATA, and vice
+// versa), so tagging would be redundant — the record size is fixed per file context via
+// OibGetStrokeRecordSize().
+typedef union _OIB_STROKE_RECORD
+{
+    KEYBOARD_INPUT_DATA Keyboard;
+    MOUSE_INPUT_DATA Mouse;
+} OIB_STROKE_RECORD, *POIB_STROKE_RECORD;
+
+// Per-open-instance ("\\.\interceptionNN" handle) state. One of these exists per WDFFILEOBJECT
+// on a control device — i.e. independently per process (or even per handle within a process)
+// that has that device open, matching the real protocol's per-context model (see
+// docs/PROTOCOL.md). Everything except SlotIndex/IsKeyboard is guarded by the owning slot's
+// InstancesLock (slots.h) rather than a lock of its own — see slots.h's design note.
+typedef struct _OIB_FILE_CONTEXT
+{
+    ULONG SlotIndex;   // which \Device\interceptionNN slot this handle belongs to (fixed for
+                        // the handle's lifetime; copied from the control device's own context
+                        // at file-create time).
+    BOOLEAN IsKeyboard;
+
+    LIST_ENTRY SlotLinkage; // linked into the owning slot's OpenInstances list (slots.h).
+
+    USHORT Filter;     // InterceptionFilter bitmask; 0 (NONE) = capture nothing (the default).
+
+    PKEVENT UnemptyEvent; // referenced via IOCTL_SET_EVENT; NULL if never set.
+
+    // Capture queue: fixed-capacity circular buffer of raw stroke records, allocated from
+    // non-paged pool (touched from DISPATCH_LEVEL — the PS/2 port driver can call the
+    // keyboard/mouse service callback there) at file-create time and freed at file-close.
+    POIB_STROKE_RECORD Queue;
+    ULONG QueueHead;   // index of the oldest queued record.
+    ULONG QueueCount;  // number of records currently queued (0..OIB_CAPTURE_QUEUE_CAPACITY).
+} OIB_FILE_CONTEXT, *POIB_FILE_CONTEXT;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(OIB_FILE_CONTEXT, OibGetFileContext)
+
+EVT_WDF_DEVICE_FILE_CREATE OibCtlEvtFileCreate;
+EVT_WDF_FILE_CLOSE OibCtlEvtFileClose;
+
 EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL OibCtlEvtIoDeviceControl;
 
 // IOCTL_GET_HARDWARE_ID (M2): resolves the control device's assigned slot (if any) to its
 // filter FDO's lower PDO and returns that PDO's hardware ID property, truncated to whatever
-// fits in the caller's output buffer. Split out from OibCtlEvtIoDeviceControl's switch
-// because it's the one IOCTL implemented so far with real (not STATUS_NOT_IMPLEMENTED) logic.
+// fits in the caller's output buffer.
 VOID OibCtlHandleGetHardwareId(_In_ WDFREQUEST Request, _In_ WDFDEVICE ControlDevice, _In_ size_t OutputBufferLength);
 
-// TODO(M3/M4/M5): dispatch table, one handler per remaining IOCTL above:
-//   IOCTL_SET_EVENT        -> ObReferenceObjectByHandle in caller context, store PKEVENT (M3)
-//   IOCTL_READ             -> drain this slot's capture queue, non-blocking (M3)
-//   IOCTL_WRITE             -> call saved ClassService for this slot's FDO (M4)
-//   IOCTL_SET/GET_FILTER    -> per-file-object filter bitmask (M3)
+// IOCTL_SET_FILTER / IOCTL_GET_FILTER (M3): per-file-object filter bitmask.
+VOID OibCtlHandleSetFilter(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject);
+VOID OibCtlHandleGetFilter(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject, _In_ size_t OutputBufferLength);
+
+// IOCTL_SET_EVENT (M3): references the caller-supplied event handle (resolved in the calling
+// thread's/process's context, which is where this handler naturally runs) so it can later be
+// signaled by OibDispatchKeyboardStroke/OibDispatchMouseStroke.
+VOID OibCtlHandleSetEvent(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject, _In_ size_t InputBufferLength);
+
+// IOCTL_READ (M3): non-blocking drain of whatever is currently queued for this file object.
+VOID OibCtlHandleRead(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject, _In_ size_t OutputBufferLength);
+
+// Called from kbdfilter.c's/mousefilter.c's service callback for each individual stroke
+// record reported by the port/HID driver below (one call per record, even when the port
+// driver batches several into one callback invocation — see kbdfilter.c/mousefilter.c for
+// why). Walks SlotIndex's list of open instances (slots.h) and, for the first one (in list
+// order — precedence-ordering this is M5's job, see docs/PROTOCOL.md) whose active filter
+// bitmask matches this stroke, queues a copy and signals its "unempty" event if this
+// transitions its queue from empty to non-empty, then sets *Captured = TRUE and stops. If no
+// open instance's filter matches, sets *Captured = FALSE (the stroke should be forwarded to
+// the real ClassService unmodified).
+//
+// The exact bit-matching rule implemented (see ioctl.c) is a best-effort reading of the
+// bit-shift structure visible in the public InterceptionFilterKeyState/
+// InterceptionFilterMouseState enums, not something confirmed against the real driver's
+// behavior — flag alongside precedence as something to validate via M5 black-box testing.
+VOID OibDispatchKeyboardStroke(_In_ ULONG SlotIndex, _In_ PKEYBOARD_INPUT_DATA Stroke, _Out_ PBOOLEAN Captured);
+VOID OibDispatchMouseStroke(_In_ ULONG SlotIndex, _In_ PMOUSE_INPUT_DATA Stroke, _Out_ PBOOLEAN Captured);
+
+// TODO(M4/M5):
+//   IOCTL_WRITE              -> call saved ClassService for this slot's FDO (M4)
 //   IOCTL_SET/GET_PRECEDENCE -> per-file-object precedence; ordering policy pending
-//                               black-box validation against the real driver (M5)
-// All operate against the slot looked up via the control device's own context (SlotIndex,
-// set at creation time — see driver.c) through the slot table in slots.c. An empty slot
-// (no physical device currently assigned) must not fail these calls — see docs/PROTOCOL.md.
+//                                black-box validation against the real driver (M5)

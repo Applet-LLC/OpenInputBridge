@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// See kbdfilter.h. M1 scope: attach as an upper filter and pass every keyboard event through
-// unmodified. Capture/withholding per the active filter bitmask lands in M3; re-injection via
-// IOCTL_WRITE lands in M4.
+// See kbdfilter.h. Attaches as an upper filter (M1); per-record capture against each open
+// instance's active filter bitmask (M3, via ioctl.c's OibDispatchKeyboardStroke) now decides
+// pass-through vs. queuing. Re-injection via IOCTL_WRITE lands in M4.
 
 #include "kbdfilter.h"
+#include "ioctl.h"
 
 NTSTATUS
 OibKbdEvtDeviceAdd(
@@ -151,18 +152,38 @@ OibKbFilterServiceCallback(
 {
     WDFDEVICE hDevice;
     POIB_KBD_FILTER_CONTEXT filterContext;
+    PKEYBOARD_INPUT_DATA stroke;
 
     hDevice = WdfWdmDeviceGetWdfDeviceHandle(DeviceObject);
     filterContext = OibGetKbdFilterContext(hDevice);
 
-    // TODO(M3): consult this slot's active filter bitmask here; strokes that should be
-    // captured are queued instead of forwarded, and this slot's "unempty" event
-    // (IOCTL_SET_EVENT) is signaled on empty->non-empty transition. For now (M1):
-    // unconditional pass-through to kbdclass's real callback.
-    (*(PSERVICE_CALLBACK_ROUTINE)(ULONG_PTR)filterContext->UpperConnectData.ClassService)(
-        filterContext->UpperConnectData.ClassDeviceObject,
-        InputDataStart,
-        InputDataEnd,
-        InputDataConsumed
-        );
+    // The port/HID driver below can batch several records into one callback invocation, but
+    // capture is a per-record decision (some of a batch might be captured while the rest pass
+    // through), so walk the batch one record at a time. Each pass-through record is forwarded
+    // to kbdclass's real callback individually rather than re-batching consecutive
+    // pass-through runs — simpler, and batches from real hardware are typically only 1-2
+    // records anyway; revisit only if profiling ever shows this matters.
+    for (stroke = InputDataStart; stroke < InputDataEnd; stroke++) {
+        BOOLEAN captured = FALSE;
+
+        if (filterContext->SlotIndex != OIB_SLOT_INDEX_NONE) {
+            OibDispatchKeyboardStroke(filterContext->SlotIndex, stroke, &captured);
+        }
+
+        if (!captured) {
+            ULONG consumedByLower = 0;
+
+            (*(PSERVICE_CALLBACK_ROUTINE)(ULONG_PTR)filterContext->UpperConnectData.ClassService)(
+                filterContext->UpperConnectData.ClassDeviceObject,
+                stroke,
+                stroke + 1,
+                &consumedByLower
+                );
+        }
+    }
+
+    // Every record in the batch has now either been forwarded or queued for later release via
+    // IOCTL_WRITE (M4) — from kbdclass's/i8042prt's point of view, all of it is "consumed" now
+    // regardless of which path a given record took.
+    *InputDataConsumed = (ULONG)(InputDataEnd - InputDataStart);
 }

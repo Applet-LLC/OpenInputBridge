@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// See ioctl.h and docs/PROTOCOL.md. IOCTL_GET_HARDWARE_ID is implemented (M2); the rest land
-// across M3 (SET_EVENT, READ, SET/GET_FILTER), M4 (WRITE), M5 (SET/GET_PRECEDENCE).
+// See ioctl.h and docs/PROTOCOL.md. IOCTL_GET_HARDWARE_ID (M2), IOCTL_SET_FILTER/GET_FILTER/
+// SET_EVENT/READ and the stroke dispatch used by kbdfilter.c/mousefilter.c (M3) are
+// implemented here. IOCTL_WRITE (M4) and IOCTL_SET/GET_PRECEDENCE (M5) remain TODO.
 
 #include "ioctl.h"
+
+static VOID OibFileContextQueuePush(_Inout_ POIB_FILE_CONTEXT FileContext, _In_ PVOID StrokeData, _In_ SIZE_T StrokeSize, _Out_ PBOOLEAN BecameNonEmpty);
+static ULONG OibFileContextQueueDrain(_Inout_ POIB_FILE_CONTEXT FileContext, _Out_writes_bytes_(OutputBufferSize) PVOID OutputBuffer, _In_ SIZE_T OutputBufferSize, _In_ SIZE_T StrokeSize);
 
 VOID
 OibCtlEvtIoDeviceControl(
@@ -16,21 +20,33 @@ OibCtlEvtIoDeviceControl(
     _In_ ULONG IoControlCode
     )
 {
-    UNREFERENCED_PARAMETER(InputBufferLength);
+    WDFFILEOBJECT fileObject = WdfRequestGetFileObject(Request);
 
     switch (IoControlCode) {
     case IOCTL_GET_HARDWARE_ID:
         OibCtlHandleGetHardwareId(Request, WdfIoQueueGetDevice(Queue), OutputBufferLength);
         return;
 
+    case IOCTL_SET_FILTER:
+        OibCtlHandleSetFilter(Request, fileObject);
+        return;
+
+    case IOCTL_GET_FILTER:
+        OibCtlHandleGetFilter(Request, fileObject, OutputBufferLength);
+        return;
+
+    case IOCTL_SET_EVENT:
+        OibCtlHandleSetEvent(Request, fileObject, InputBufferLength);
+        return;
+
+    case IOCTL_READ:
+        OibCtlHandleRead(Request, fileObject, OutputBufferLength);
+        return;
+
     case IOCTL_SET_PRECEDENCE:
     case IOCTL_GET_PRECEDENCE:
-    case IOCTL_SET_FILTER:
-    case IOCTL_GET_FILTER:
-    case IOCTL_SET_EVENT:
     case IOCTL_WRITE:
-    case IOCTL_READ:
-        // TODO: dispatch to per-IOCTL handlers, see ioctl.h.
+        // TODO: IOCTL_WRITE lands in M4, precedence in M5.
         WdfRequestComplete(Request, STATUS_NOT_IMPLEMENTED);
         return;
 
@@ -115,4 +131,380 @@ OibCtlHandleGetHardwareId(
     }
 
     WdfRequestCompleteWithInformation(Request, status, bytesReturned);
+}
+
+VOID
+OibCtlEvtFileCreate(
+    _In_ WDFDEVICE Device,
+    _In_ WDFREQUEST Request,
+    _In_ WDFFILEOBJECT FileObject
+    )
+{
+    POIB_CONTROL_DEVICE_CONTEXT ctlContext = OibGetControlDeviceContext(Device);
+    POIB_FILE_CONTEXT fileContext = OibGetFileContext(FileObject);
+
+    // Self-referencing until (if) OibSlotAttachFileContext links it for real, so that
+    // OibCtlEvtFileClose's OibSlotDetachFileContext is always safe to call, even if the
+    // allocation below fails and we never actually attach.
+    InitializeListHead(&fileContext->SlotLinkage);
+
+    fileContext->SlotIndex = ctlContext->SlotIndex;
+    fileContext->IsKeyboard = ctlContext->IsKeyboard;
+    fileContext->Filter = 0;
+    fileContext->UnemptyEvent = NULL;
+    fileContext->QueueHead = 0;
+    fileContext->QueueCount = 0;
+
+    // Non-paged: the capture queue is written to from OibDispatchKeyboardStroke/
+    // OibDispatchMouseStroke, which can run at DISPATCH_LEVEL (the PS/2 port driver's
+    // keyboard/mouse service callback chain runs there) — see slots.h.
+    fileContext->Queue = ExAllocatePool2(
+        POOL_FLAG_NON_PAGED,
+        OIB_CAPTURE_QUEUE_CAPACITY * sizeof(OIB_STROKE_RECORD),
+        OIB_POOL_TAG
+        );
+
+    if (fileContext->Queue == NULL) {
+        WdfRequestComplete(Request, STATUS_INSUFFICIENT_RESOURCES);
+        return;
+    }
+
+    OibSlotAttachFileContext(fileContext->SlotIndex, &fileContext->SlotLinkage);
+
+    WdfRequestComplete(Request, STATUS_SUCCESS);
+}
+
+VOID
+OibCtlEvtFileClose(
+    _In_ WDFFILEOBJECT FileObject
+    )
+{
+    POIB_FILE_CONTEXT fileContext = OibGetFileContext(FileObject);
+
+    OibSlotDetachFileContext(fileContext->SlotIndex, &fileContext->SlotLinkage);
+
+    if (fileContext->UnemptyEvent != NULL) {
+        ObDereferenceObject(fileContext->UnemptyEvent);
+        fileContext->UnemptyEvent = NULL;
+    }
+
+    if (fileContext->Queue != NULL) {
+        ExFreePoolWithTag(fileContext->Queue, OIB_POOL_TAG);
+        fileContext->Queue = NULL;
+    }
+}
+
+VOID
+OibCtlHandleSetFilter(
+    _In_ WDFREQUEST Request,
+    _In_ WDFFILEOBJECT FileObject
+    )
+{
+    POIB_FILE_CONTEXT fileContext = OibGetFileContext(FileObject);
+    NTSTATUS status;
+    PUSHORT filterValue;
+    size_t length;
+
+    status = WdfRequestRetrieveInputBuffer(Request, sizeof(USHORT), &filterValue, &length);
+    if (!NT_SUCCESS(status)) {
+        WdfRequestComplete(Request, status);
+        return;
+    }
+
+    OibSlotLockInstances(fileContext->SlotIndex);
+    fileContext->Filter = *filterValue;
+    OibSlotUnlockInstances(fileContext->SlotIndex);
+
+    WdfRequestComplete(Request, STATUS_SUCCESS);
+}
+
+VOID
+OibCtlHandleGetFilter(
+    _In_ WDFREQUEST Request,
+    _In_ WDFFILEOBJECT FileObject,
+    _In_ size_t OutputBufferLength
+    )
+{
+    POIB_FILE_CONTEXT fileContext = OibGetFileContext(FileObject);
+    NTSTATUS status;
+    PUSHORT outputValue;
+    size_t outputBufferSize;
+    USHORT filter;
+
+    UNREFERENCED_PARAMETER(OutputBufferLength);
+
+    status = WdfRequestRetrieveOutputBuffer(Request, sizeof(USHORT), &outputValue, &outputBufferSize);
+    if (!NT_SUCCESS(status)) {
+        WdfRequestComplete(Request, status);
+        return;
+    }
+
+    OibSlotLockInstances(fileContext->SlotIndex);
+    filter = fileContext->Filter;
+    OibSlotUnlockInstances(fileContext->SlotIndex);
+
+    *outputValue = filter;
+
+    WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(USHORT));
+}
+
+VOID
+OibCtlHandleSetEvent(
+    _In_ WDFREQUEST Request,
+    _In_ WDFFILEOBJECT FileObject,
+    _In_ size_t InputBufferLength
+    )
+{
+    POIB_FILE_CONTEXT fileContext = OibGetFileContext(FileObject);
+    NTSTATUS status;
+    PVOID inputBuffer;
+    PHANDLE handles;
+    size_t length;
+    PKEVENT eventObject = NULL;
+    PKEVENT previousEvent;
+
+    UNREFERENCED_PARAMETER(InputBufferLength);
+
+    // Wire format is HANDLE[2] (only the first element is real, see docs/PROTOCOL.md); we
+    // only need the first, so require just sizeof(HANDLE).
+    status = WdfRequestRetrieveInputBuffer(Request, sizeof(HANDLE), &inputBuffer, &length);
+    if (!NT_SUCCESS(status)) {
+        WdfRequestComplete(Request, status);
+        return;
+    }
+
+    handles = (PHANDLE)inputBuffer;
+
+    // This handler runs synchronously in the calling thread's context (a directly-opened
+    // local handle doing DeviceIoControl), so handles[0] resolves against the right
+    // process's handle table with no extra attach step needed.
+    status = ObReferenceObjectByHandle(
+        handles[0],
+        EVENT_MODIFY_STATE,
+        *ExEventObjectType,
+        KernelMode,
+        (PVOID *)&eventObject,
+        NULL
+        );
+    if (!NT_SUCCESS(status)) {
+        WdfRequestComplete(Request, status);
+        return;
+    }
+
+    OibSlotLockInstances(fileContext->SlotIndex);
+    previousEvent = fileContext->UnemptyEvent;
+    fileContext->UnemptyEvent = eventObject;
+    OibSlotUnlockInstances(fileContext->SlotIndex);
+
+    if (previousEvent != NULL) {
+        // The real library only calls this once per handle; don't leak a reference if a
+        // caller (mis)uses the IOCTL a second time.
+        ObDereferenceObject(previousEvent);
+    }
+
+    WdfRequestComplete(Request, STATUS_SUCCESS);
+}
+
+VOID
+OibCtlHandleRead(
+    _In_ WDFREQUEST Request,
+    _In_ WDFFILEOBJECT FileObject,
+    _In_ size_t OutputBufferLength
+    )
+{
+    POIB_FILE_CONTEXT fileContext = OibGetFileContext(FileObject);
+    NTSTATUS status;
+    PVOID outputBuffer = NULL;
+    size_t outputBufferSize = 0;
+    size_t strokeSize = fileContext->IsKeyboard ? sizeof(KEYBOARD_INPUT_DATA) : sizeof(MOUSE_INPUT_DATA);
+    ULONG recordsCopied;
+
+    if (OutputBufferLength != 0) {
+        status = WdfRequestRetrieveOutputBuffer(Request, 0, &outputBuffer, &outputBufferSize);
+        if (!NT_SUCCESS(status)) {
+            WdfRequestComplete(Request, status);
+            return;
+        }
+    }
+
+    OibSlotLockInstances(fileContext->SlotIndex);
+    recordsCopied = OibFileContextQueueDrain(fileContext, outputBuffer, outputBufferSize, strokeSize);
+    OibSlotUnlockInstances(fileContext->SlotIndex);
+
+    WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, (ULONG_PTR)(recordsCopied * strokeSize));
+}
+
+static VOID
+OibFileContextQueuePush(
+    _Inout_ POIB_FILE_CONTEXT FileContext,
+    _In_ PVOID StrokeData,
+    _In_ SIZE_T StrokeSize,
+    _Out_ PBOOLEAN BecameNonEmpty
+    )
+{
+    ULONG writeIndex;
+
+    NT_ASSERT(StrokeSize <= sizeof(OIB_STROKE_RECORD));
+
+    *BecameNonEmpty = (FileContext->QueueCount == 0);
+
+    if (FileContext->QueueCount == OIB_CAPTURE_QUEUE_CAPACITY) {
+        // Full: drop the oldest queued record to make room for this one (see ioctl.h's
+        // OIB_CAPTURE_QUEUE_CAPACITY comment).
+        FileContext->QueueHead = (FileContext->QueueHead + 1) % OIB_CAPTURE_QUEUE_CAPACITY;
+        FileContext->QueueCount--;
+    }
+
+    writeIndex = (FileContext->QueueHead + FileContext->QueueCount) % OIB_CAPTURE_QUEUE_CAPACITY;
+    RtlCopyMemory(&FileContext->Queue[writeIndex], StrokeData, StrokeSize);
+    FileContext->QueueCount++;
+}
+
+static ULONG
+OibFileContextQueueDrain(
+    _Inout_ POIB_FILE_CONTEXT FileContext,
+    _Out_writes_bytes_(OutputBufferSize) PVOID OutputBuffer,
+    _In_ SIZE_T OutputBufferSize,
+    _In_ SIZE_T StrokeSize
+    )
+{
+    ULONG maxRecords = (ULONG)(OutputBufferSize / StrokeSize);
+    ULONG recordsToCopy = min(maxRecords, FileContext->QueueCount);
+    ULONG i;
+
+    for (i = 0; i < recordsToCopy; i++) {
+        ULONG readIndex = (FileContext->QueueHead + i) % OIB_CAPTURE_QUEUE_CAPACITY;
+        RtlCopyMemory((PUCHAR)OutputBuffer + ((SIZE_T)i * StrokeSize), &FileContext->Queue[readIndex], StrokeSize);
+    }
+
+    FileContext->QueueHead = (FileContext->QueueHead + recordsToCopy) % OIB_CAPTURE_QUEUE_CAPACITY;
+    FileContext->QueueCount -= recordsToCopy;
+
+    return recordsToCopy;
+}
+
+static USHORT
+OibComputeKeyboardRequiredFilterBits(
+    _In_ USHORT RawFlags
+    )
+{
+    USHORT required;
+
+    // KEY_UP (bit 0 of the raw flags) selects between the FILTER_KEY_DOWN (0x0001) and
+    // FILTER_KEY_UP (0x0002) bits — "down" has no raw bit of its own, it's the absence of UP.
+    required = (RawFlags & 0x0001) ? 0x0002 /* INTERCEPTION_FILTER_KEY_UP */
+                                    : 0x0001 /* INTERCEPTION_FILTER_KEY_DOWN */;
+
+    // Every other defined raw flag bit (E0, E1, TERMSRV_SET_LED, TERMSRV_SHADOW,
+    // TERMSRV_VKPACKET — bits 1-5) has a corresponding filter bit exactly one position to its
+    // left (see InterceptionFilterKeyState in interception.h).
+    required = (USHORT)(required | ((RawFlags & 0x003E) << 1));
+
+    return required;
+}
+
+VOID
+OibDispatchKeyboardStroke(
+    _In_ ULONG SlotIndex,
+    _In_ PKEYBOARD_INPUT_DATA Stroke,
+    _Out_ PBOOLEAN Captured
+    )
+{
+    USHORT requiredBits;
+    PLIST_ENTRY head;
+    PLIST_ENTRY entry;
+
+    *Captured = FALSE;
+    requiredBits = OibComputeKeyboardRequiredFilterBits(Stroke->Flags);
+
+    OibSlotLockInstances(SlotIndex);
+
+    head = OibSlotGetInstancesListHead(SlotIndex);
+    for (entry = head->Flink; entry != head; entry = entry->Flink) {
+        POIB_FILE_CONTEXT fileContext = CONTAINING_RECORD(entry, OIB_FILE_CONTEXT, SlotLinkage);
+        BOOLEAN becameNonEmpty;
+
+        if (fileContext->Filter == 0) {
+            continue; // FILTER_KEY_NONE: never capture.
+        }
+
+        if ((fileContext->Filter & requiredBits) != requiredBits) {
+            continue;
+        }
+
+        OibFileContextQueuePush(fileContext, Stroke, sizeof(*Stroke), &becameNonEmpty);
+
+        if (becameNonEmpty && fileContext->UnemptyEvent != NULL) {
+            KeSetEvent(fileContext->UnemptyEvent, IO_NO_INCREMENT, FALSE);
+        }
+
+        *Captured = TRUE;
+        break;
+    }
+
+    OibSlotUnlockInstances(SlotIndex);
+}
+
+static USHORT
+OibComputeMouseRequiredFilterBits(
+    _In_ PMOUSE_INPUT_DATA Stroke
+    )
+{
+    // Button/wheel filter bits map 1:1 (no shift) onto the raw ButtonFlags bits — see
+    // InterceptionFilterMouseState in interception.h.
+    USHORT required = (USHORT)(Stroke->ButtonFlags & 0x0FFF);
+
+    if (Stroke->LastX != 0 || Stroke->LastY != 0) {
+        required |= 0x1000; // INTERCEPTION_FILTER_MOUSE_MOVE (has no raw ButtonFlags bit of
+                             // its own; it's a synthetic bit meaning "movement occurred").
+    }
+
+    return required;
+}
+
+VOID
+OibDispatchMouseStroke(
+    _In_ ULONG SlotIndex,
+    _In_ PMOUSE_INPUT_DATA Stroke,
+    _Out_ PBOOLEAN Captured
+    )
+{
+    USHORT requiredBits;
+    PLIST_ENTRY head;
+    PLIST_ENTRY entry;
+
+    *Captured = FALSE;
+    requiredBits = OibComputeMouseRequiredFilterBits(Stroke);
+
+    if (requiredBits == 0) {
+        // Nothing about this packet (no button/wheel change, no movement) is capturable.
+        return;
+    }
+
+    OibSlotLockInstances(SlotIndex);
+
+    head = OibSlotGetInstancesListHead(SlotIndex);
+    for (entry = head->Flink; entry != head; entry = entry->Flink) {
+        POIB_FILE_CONTEXT fileContext = CONTAINING_RECORD(entry, OIB_FILE_CONTEXT, SlotLinkage);
+        BOOLEAN becameNonEmpty;
+
+        if (fileContext->Filter == 0) {
+            continue;
+        }
+
+        if ((fileContext->Filter & requiredBits) != requiredBits) {
+            continue;
+        }
+
+        OibFileContextQueuePush(fileContext, Stroke, sizeof(*Stroke), &becameNonEmpty);
+
+        if (becameNonEmpty && fileContext->UnemptyEvent != NULL) {
+            KeSetEvent(fileContext->UnemptyEvent, IO_NO_INCREMENT, FALSE);
+        }
+
+        *Captured = TRUE;
+        break;
+    }
+
+    OibSlotUnlockInstances(SlotIndex);
 }

@@ -55,3 +55,33 @@ NTSTATUS OibSlotAcquireFilterDevice(_In_ ULONG SlotIndex, _Out_ WDFDEVICE *Filte
 
 // Releases a reference acquired by OibSlotAcquireFilterDevice.
 VOID OibSlotReleaseFilterDeviceReference(_In_ WDFDEVICE FilterDevice);
+
+// --- Per-slot list of open \\.\interceptionNN handles (M3) ---
+//
+// Each slot also owns a list of the control-device file objects (WDFFILEOBJECT-backed
+// "OIB_FILE_CONTEXT" records, see ioctl.h) currently open on it, plus a dedicated spinlock
+// guarding that list AND every listed context's own filter/event/capture-queue state. One
+// lock per slot (rather than one global lock) keeps stroke dispatch on a busy keyboard from
+// contending with an unrelated mouse slot. slots.c intentionally stays agnostic of what a
+// "file context" contains — it only threads LIST_ENTRY linkage — so the field definitions
+// live in ioctl.h alongside the IOCTLs that operate on them.
+
+// Links FileContextLinkage into SlotIndex's list of open instances. Called from
+// ioctl.c's OibCtlEvtFileCreate.
+VOID OibSlotAttachFileContext(_In_ ULONG SlotIndex, _In_ PLIST_ENTRY FileContextLinkage);
+
+// Unlinks FileContextLinkage from SlotIndex's list. Called from ioctl.c's OibCtlEvtFileClose.
+VOID OibSlotDetachFileContext(_In_ ULONG SlotIndex, _In_ PLIST_ENTRY FileContextLinkage);
+
+// Acquires/releases SlotIndex's instances lock. Callers must hold this while reading or
+// writing any OIB_FILE_CONTEXT belonging to this slot (Filter, UnemptyEvent, capture queue)
+// or while walking the list returned by OibSlotGetInstancesListHead — including from
+// DISPATCH_LEVEL (the keyboard/mouse service callback can run there), so anything touched
+// while holding this lock must be non-paged.
+VOID OibSlotLockInstances(_In_ ULONG SlotIndex);
+VOID OibSlotUnlockInstances(_In_ ULONG SlotIndex);
+
+// Returns SlotIndex's list head, for iteration (e.g. via the standard
+// for (entry = head->Flink; entry != head; entry = entry->Flink) idiom) while the instances
+// lock (above) is held.
+PLIST_ENTRY OibSlotGetInstancesListHead(_In_ ULONG SlotIndex);
