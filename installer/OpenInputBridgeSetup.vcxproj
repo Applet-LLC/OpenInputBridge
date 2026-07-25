@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Plain Win32 console application (not a driver project) — builds OpenInputBridgeSetup.exe.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}</ProjectGuid>
+    <RootNamespace>OpenInputBridgeSetup</RootNamespace>
+    <!--
+      Deliberately not setting WindowsTargetPlatformVersion here: when built via the EWDK
+      (see /BuildEnv/SetupBuildEnv.cmd), it's already set in the environment to match the
+      EWDK's bundled SDK version, and vsdevcmd.bat is invoked with -winsdk=none (driver builds
+      resolve the SDK through WindowsSdkDir/WDKContentRoot themselves, not the normal SDK
+      auto-detection), so a plain Application project needs the IncludePath/LibraryPath below
+      spelled out explicitly rather than relying on Microsoft.Cpp.props' usual SDK discovery.
+    -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <TargetName>OpenInputBridgeSetup</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <SDLCheck>true</SDLCheck>
+      <!-- Source files are UTF-8 (no BOM) — see driver/OpenInputBridge.vcxproj's equivalent
+           note for why this matters under a non-UTF-8 system code page. -->
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="install.cpp" />
+    <ClCompile Include="uninstall.cpp" />
+    <ClCompile Include="common.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="common.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
