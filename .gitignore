@@ -1,0 +1,57 @@
+# Visual Studio / MSBuild
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.VC.opendb
+
+# Build output
+Debug/
+Release/
+x64/
+x86/
+ARM/
+ARM64/
+build/
+bin/
+obj/
+out/
+
+# WDK / driver build artifacts
+*.obj
+*.exe
+*.dll
+*.sys
+*.pdb
+*.lib
+*.exp
+*.ilk
+*.idb
+*.iobj
+*.ipdb
+*.log
+*.tlog/
+*.cer
+*.pfx
+*.cat
+*.inf.bak
+BuildLog.htm
+*.wpp.h
+
+# Driver package / signing artifacts
+*.ddf
+*.cab
+
+# Test signing certs (never commit real signing material)
+TestCert.*
+*.p12
+
+# OS / editor
+Thumbs.db
+.DS_Store
+*.swp
+
+# Local AI-assistant session recording (conversation transcripts, not project source)
+.specstory/
