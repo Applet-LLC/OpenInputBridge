@@ -45,7 +45,28 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ## ビルド方法
 
-準備中（詳細は今後追記）。
+### リポジトリの取得
+
+`third_party/interception` は upstream の [oblitum/Interception](https://github.com/oblitum/Interception) `library/` を無改変でvendorしたgit submoduleです。**submoduleごと取得してください。**
+
+```sh
+git clone --recurse-submodules https://github.com/Applet-LLC/OpenInputBridge.git
+```
+
+すでに通常の `git clone` 済みの場合は、以下でsubmoduleを取得できます。
+
+```sh
+git submodule update --init --recursive
+```
+
+### ドライバのビルド（要WDK）
+
+`driver/` はKMDF（Kernel-Mode Driver Framework）ベースのWindowsカーネルドライバです。ビルドには以下が必要です。
+
+- Visual Studio 2022
+- Windows Driver Kit (WDK)。EWDK（Enterprise WDK、ISOイメージをマウントして使うスタンドアロン版）を推奨します。ローカルインストールのWindows SDKだけでは、ドライバのLink/Inf2Catビルドカスタマイズが解決されず、ビルドが「成功」と表示されつつ実際には `.sys`/`.inf`/`.cat` が生成されない場合があります
+
+詳細な手順は今後追記します（現時点ではドライバの骨格実装段階です。ロードマップは [プロジェクトの計画](#ステータス) を参照してください）。
 
 ## 貢献
 
