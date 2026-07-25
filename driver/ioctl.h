@@ -56,6 +56,11 @@ typedef struct _OIB_FILE_CONTEXT
 
     USHORT Filter;     // InterceptionFilter bitmask; 0 (NONE) = capture nothing (the default).
 
+    LONG Precedence;   // InterceptionPrecedence; 0 by default. Higher values win ties among
+                        // multiple matching open instances — see OibDispatch{Keyboard,Mouse}
+                        // Stroke and the M5 caveat on ioctl.h's IOCTL_SET/GET_PRECEDENCE
+                        // declarations below.
+
     PKEVENT UnemptyEvent; // referenced via IOCTL_SET_EVENT; NULL if never set.
 
     // Capture queue: fixed-capacity circular buffer of raw stroke records, allocated from
@@ -93,17 +98,21 @@ VOID OibCtlHandleRead(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject, _I
 // Called from kbdfilter.c's/mousefilter.c's service callback for each individual stroke
 // record reported by the port/HID driver below (one call per record, even when the port
 // driver batches several into one callback invocation — see kbdfilter.c/mousefilter.c for
-// why). Walks SlotIndex's list of open instances (slots.h) and, for the first one (in list
-// order — precedence-ordering this is M5's job, see docs/PROTOCOL.md) whose active filter
-// bitmask matches this stroke, queues a copy and signals its "unempty" event if this
-// transitions its queue from empty to non-empty, then sets *Captured = TRUE and stops. If no
+// why). Walks SlotIndex's list of open instances (slots.h) and, among every one whose active
+// filter bitmask matches this stroke, picks the single instance with the highest Precedence
+// (ties broken by list/attachment order) to queue a copy into and signal the "unempty" event
+// of if this transitions its queue from empty to non-empty, then sets *Captured = TRUE. If no
 // open instance's filter matches, sets *Captured = FALSE (the stroke should be forwarded to
 // the real ClassService unmodified).
 //
-// The exact bit-matching rule implemented (see ioctl.c) is a best-effort reading of the
-// bit-shift structure visible in the public InterceptionFilterKeyState/
-// InterceptionFilterMouseState enums, not something confirmed against the real driver's
-// behavior — flag alongside precedence as something to validate via M5 black-box testing.
+// Both the exact bit-matching rule (see ioctl.c) and this "single highest-precedence winner"
+// dispatch policy are best-effort readings of the public library source and header, not
+// something confirmed against the real driver's behavior — see the M5 caveat on
+// IOCTL_SET_PRECEDENCE below and docs/PROTOCOL.md. If black-box testing later shows the real
+// driver instead fans a stroke out to every matching context independently, or serializes a
+// hand-off chain where a higher-precedence context must explicitly release before a lower one
+// sees it, only this function's body needs to change — the queue/event mechanics and the
+// OIB_FILE_CONTEXT list itself are already general enough to support either policy.
 VOID OibDispatchKeyboardStroke(_In_ ULONG SlotIndex, _In_ PKEYBOARD_INPUT_DATA Stroke, _Out_ PBOOLEAN Captured);
 VOID OibDispatchMouseStroke(_In_ ULONG SlotIndex, _In_ PMOUSE_INPUT_DATA Stroke, _Out_ PBOOLEAN Captured);
 
@@ -116,6 +125,12 @@ VOID OibDispatchMouseStroke(_In_ ULONG SlotIndex, _In_ PMOUSE_INPUT_DATA Stroke,
 // OibCtlHandleGetHardwareId's precedent.
 VOID OibCtlHandleWrite(_In_ WDFREQUEST Request, _In_ WDFDEVICE ControlDevice, _In_ size_t InputBufferLength);
 
-// TODO(M5):
-//   IOCTL_SET/GET_PRECEDENCE -> per-file-object precedence; ordering policy pending
-//                                black-box validation against the real driver (M5)
+// IOCTL_SET_PRECEDENCE / IOCTL_GET_PRECEDENCE (M5): per-file-object InterceptionPrecedence
+// (plain int/LONG). Implemented now on a best-effort "highest precedence among matching
+// instances wins" policy (see OibDispatchKeyboardStroke/OibDispatchMouseStroke above) so the
+// unmodified upstream library's interception_set_precedence/interception_get_precedence work
+// end-to-end; the exact multi-context ordering semantics this should implement are still
+// pending black-box validation against the real driver (docs/PROTOCOL.md), and may need this
+// policy adjusted once that's done.
+VOID OibCtlHandleSetPrecedence(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject);
+VOID OibCtlHandleGetPrecedence(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject, _In_ size_t OutputBufferLength);

@@ -90,9 +90,15 @@ typedef struct _MOUSE_INPUT_DATA
   確認したものではない（`driver/ioctl.c` の `OibComputeKeyboardRequiredFilterBits` /
   `OibComputeMouseRequiredFilterBits` 参照）。precedenceと同様、M5でのブラックボックス検証対象。
 - **`IOCTL_GET_PRECEDENCE` / `IOCTL_SET_PRECEDENCE`**: `int`。同一の物理デバイスを複数プロセスが同時に
-  フックしている場合の優先順位。実装の詳細（複数コンテキストへの配送方式が「各々に独立コピー」なのか
-  「優先順位チェーンで順に手渡し」なのか）は、公開ライブラリのソースだけからは断定できないため、
-  実物ドライバに対するブラックボックスI/O観察（`tests/precedence_blackbox/`）で検証してから実装する。
+  フックしている場合の優先順位。
+  **実装上の注記（M5実装済み、要検証）**: 複数コンテキストへの配送方式が「各々に独立コピー」なのか
+  「優先順位チェーンで順に手渡し」なのかは、公開ライブラリのソースだけからは断定できない。現時点の暫定実装
+  （`driver/ioctl.c` の `OibDispatchKeyboardStroke` / `OibDispatchMouseStroke`）は、フィルタが一致した
+  オープンインスタンスのうち **precedence値が最大の1つだけ**が捕捉する、という単純な方式を採用している
+  （同値の場合は先にアタッチされた方）。実物ドライバに対するブラックボックスI/O観察
+  （`tests/precedence_blackbox/`）で挙動を確認し、異なることが分かった場合はこの配送ロジックのみを
+  差し替える（キュー/イベントの仕組みやオープンインスタンス一覧のデータ構造はどちらの方式にも対応できる
+  よう汎用的に作ってある）。
 - **`IOCTL_READ`**: 出力バッファに、捕捉済みで未読の `KEYBOARD_INPUT_DATA` / `MOUSE_INPUT_DATA` を
   詰めて返す非ブロッキング呼び出し。現在キューにある分だけ（呼び出し元のバッファサイズを上限として）返す。
 - **`IOCTL_WRITE`**: 入力バッファの `KEYBOARD_INPUT_DATA` / `MOUSE_INPUT_DATA` 配列を、実際の入力ストリームへ

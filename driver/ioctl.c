@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// See ioctl.h and docs/PROTOCOL.md. IOCTL_GET_HARDWARE_ID (M2), IOCTL_SET_FILTER/GET_FILTER/
-// SET_EVENT/READ and the stroke dispatch used by kbdfilter.c/mousefilter.c (M3), and
-// IOCTL_WRITE (M4) are implemented here. IOCTL_SET/GET_PRECEDENCE (M5) remains TODO.
+// See ioctl.h and docs/PROTOCOL.md. All 8 control-device IOCTLs are implemented here:
+// IOCTL_GET_HARDWARE_ID (M2), IOCTL_SET_FILTER/GET_FILTER/SET_EVENT/READ and the stroke
+// dispatch used by kbdfilter.c/mousefilter.c (M3), IOCTL_WRITE (M4), and
+// IOCTL_SET_PRECEDENCE/GET_PRECEDENCE (M5 — see the caveat on those declarations in ioctl.h).
 
 #include "ioctl.h"
 #include "kbdfilter.h"
@@ -50,9 +51,11 @@ OibCtlEvtIoDeviceControl(
         return;
 
     case IOCTL_SET_PRECEDENCE:
+        OibCtlHandleSetPrecedence(Request, fileObject);
+        return;
+
     case IOCTL_GET_PRECEDENCE:
-        // TODO: lands in M5.
-        WdfRequestComplete(Request, STATUS_NOT_IMPLEMENTED);
+        OibCtlHandleGetPrecedence(Request, fileObject, OutputBufferLength);
         return;
 
     default:
@@ -244,6 +247,7 @@ OibCtlEvtFileCreate(
     fileContext->SlotIndex = ctlContext->SlotIndex;
     fileContext->IsKeyboard = ctlContext->IsKeyboard;
     fileContext->Filter = 0;
+    fileContext->Precedence = 0;
     fileContext->UnemptyEvent = NULL;
     fileContext->QueueHead = 0;
     fileContext->QueueCount = 0;
@@ -339,6 +343,60 @@ OibCtlHandleGetFilter(
     *outputValue = filter;
 
     WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(USHORT));
+}
+
+VOID
+OibCtlHandleSetPrecedence(
+    _In_ WDFREQUEST Request,
+    _In_ WDFFILEOBJECT FileObject
+    )
+{
+    POIB_FILE_CONTEXT fileContext = OibGetFileContext(FileObject);
+    NTSTATUS status;
+    PLONG precedenceValue;
+    size_t length;
+
+    status = WdfRequestRetrieveInputBuffer(Request, sizeof(LONG), &precedenceValue, &length);
+    if (!NT_SUCCESS(status)) {
+        WdfRequestComplete(Request, status);
+        return;
+    }
+
+    OibSlotLockInstances(fileContext->SlotIndex);
+    fileContext->Precedence = *precedenceValue;
+    OibSlotUnlockInstances(fileContext->SlotIndex);
+
+    WdfRequestComplete(Request, STATUS_SUCCESS);
+}
+
+VOID
+OibCtlHandleGetPrecedence(
+    _In_ WDFREQUEST Request,
+    _In_ WDFFILEOBJECT FileObject,
+    _In_ size_t OutputBufferLength
+    )
+{
+    POIB_FILE_CONTEXT fileContext = OibGetFileContext(FileObject);
+    NTSTATUS status;
+    PLONG outputValue;
+    size_t outputBufferSize;
+    LONG precedence;
+
+    UNREFERENCED_PARAMETER(OutputBufferLength);
+
+    status = WdfRequestRetrieveOutputBuffer(Request, sizeof(LONG), &outputValue, &outputBufferSize);
+    if (!NT_SUCCESS(status)) {
+        WdfRequestComplete(Request, status);
+        return;
+    }
+
+    OibSlotLockInstances(fileContext->SlotIndex);
+    precedence = fileContext->Precedence;
+    OibSlotUnlockInstances(fileContext->SlotIndex);
+
+    *outputValue = precedence;
+
+    WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(LONG));
 }
 
 VOID
@@ -506,16 +564,22 @@ OibDispatchKeyboardStroke(
     USHORT requiredBits;
     PLIST_ENTRY head;
     PLIST_ENTRY entry;
+    POIB_FILE_CONTEXT best = NULL;
+    LONG bestPrecedence = 0;
+    BOOLEAN becameNonEmpty;
 
     *Captured = FALSE;
     requiredBits = OibComputeKeyboardRequiredFilterBits(Stroke->Flags);
 
     OibSlotLockInstances(SlotIndex);
 
+    // M5 (best-effort, pending black-box validation — see ioctl.h): among every open instance
+    // whose filter matches, only the single one with the highest Precedence captures the
+    // stroke (ties go to whichever was attached first). Everyone else neither sees nor blocks
+    // it, and it still doesn't reach the real ClassService.
     head = OibSlotGetInstancesListHead(SlotIndex);
     for (entry = head->Flink; entry != head; entry = entry->Flink) {
         POIB_FILE_CONTEXT fileContext = CONTAINING_RECORD(entry, OIB_FILE_CONTEXT, SlotLinkage);
-        BOOLEAN becameNonEmpty;
 
         if (fileContext->Filter == 0) {
             continue; // FILTER_KEY_NONE: never capture.
@@ -525,14 +589,20 @@ OibDispatchKeyboardStroke(
             continue;
         }
 
-        OibFileContextQueuePush(fileContext, Stroke, sizeof(*Stroke), &becameNonEmpty);
+        if (best == NULL || fileContext->Precedence > bestPrecedence) {
+            best = fileContext;
+            bestPrecedence = fileContext->Precedence;
+        }
+    }
 
-        if (becameNonEmpty && fileContext->UnemptyEvent != NULL) {
-            KeSetEvent(fileContext->UnemptyEvent, IO_NO_INCREMENT, FALSE);
+    if (best != NULL) {
+        OibFileContextQueuePush(best, Stroke, sizeof(*Stroke), &becameNonEmpty);
+
+        if (becameNonEmpty && best->UnemptyEvent != NULL) {
+            KeSetEvent(best->UnemptyEvent, IO_NO_INCREMENT, FALSE);
         }
 
         *Captured = TRUE;
-        break;
     }
 
     OibSlotUnlockInstances(SlotIndex);
@@ -565,6 +635,9 @@ OibDispatchMouseStroke(
     USHORT requiredBits;
     PLIST_ENTRY head;
     PLIST_ENTRY entry;
+    POIB_FILE_CONTEXT best = NULL;
+    LONG bestPrecedence = 0;
+    BOOLEAN becameNonEmpty;
 
     *Captured = FALSE;
     requiredBits = OibComputeMouseRequiredFilterBits(Stroke);
@@ -576,10 +649,11 @@ OibDispatchMouseStroke(
 
     OibSlotLockInstances(SlotIndex);
 
+    // See OibDispatchKeyboardStroke for the M5 highest-precedence-wins policy this
+    // implements.
     head = OibSlotGetInstancesListHead(SlotIndex);
     for (entry = head->Flink; entry != head; entry = entry->Flink) {
         POIB_FILE_CONTEXT fileContext = CONTAINING_RECORD(entry, OIB_FILE_CONTEXT, SlotLinkage);
-        BOOLEAN becameNonEmpty;
 
         if (fileContext->Filter == 0) {
             continue;
@@ -589,14 +663,20 @@ OibDispatchMouseStroke(
             continue;
         }
 
-        OibFileContextQueuePush(fileContext, Stroke, sizeof(*Stroke), &becameNonEmpty);
+        if (best == NULL || fileContext->Precedence > bestPrecedence) {
+            best = fileContext;
+            bestPrecedence = fileContext->Precedence;
+        }
+    }
 
-        if (becameNonEmpty && fileContext->UnemptyEvent != NULL) {
-            KeSetEvent(fileContext->UnemptyEvent, IO_NO_INCREMENT, FALSE);
+    if (best != NULL) {
+        OibFileContextQueuePush(best, Stroke, sizeof(*Stroke), &becameNonEmpty);
+
+        if (becameNonEmpty && best->UnemptyEvent != NULL) {
+            KeSetEvent(best->UnemptyEvent, IO_NO_INCREMENT, FALSE);
         }
 
         *Captured = TRUE;
-        break;
     }
 
     OibSlotUnlockInstances(SlotIndex);
