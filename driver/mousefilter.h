@@ -11,17 +11,32 @@
 #pragma once
 
 #include "driver.h"
+#include <kbdmou.h>
+#include <ntddmou.h>
 
-EVT_WDF_DEVICE_FILE_CREATE OibMouEvtDeviceFileCreate;
+// Per-filter-FDO context. Mirrors OIB_KBD_FILTER_CONTEXT in kbdfilter.h.
+typedef struct _OIB_MOU_FILTER_CONTEXT
+{
+    CONNECT_DATA UpperConnectData;
+
+    // TODO(M2): slot index (OIB_KEYBOARD_SLOT_COUNT..OIB_DEVICE_SLOT_COUNT-1) this FDO is
+    // assigned to in the global slot table, set on successful OibMouEvtDeviceAdd and cleared
+    // on removal.
+} OIB_MOU_FILTER_CONTEXT, *POIB_MOU_FILTER_CONTEXT;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(OIB_MOU_FILTER_CONTEXT, OibGetMouFilterContext)
+
 EVT_WDF_IO_QUEUE_IO_INTERNAL_DEVICE_CONTROL OibMouEvtInternalDeviceControl;
 
-// TODO(M1): AddDevice for the mouse filter FDO, mirrors OibKbdEvtDeviceAdd.
+// AddDevice for the mouse filter FDO. Called from OibEvtDeviceAdd (driver.c) once it has
+// determined DeviceInit targets the Mouse device setup class.
 NTSTATUS OibMouEvtDeviceAdd(_In_ WDFDRIVER Driver, _Inout_ PWDFDEVICE_INIT DeviceInit);
 
-// TODO(M1): the substituted ClassService callback, MOUSE_INPUT_DATA variant.
+// The substituted ClassService callback, MOUSE_INPUT_DATA variant of
+// OibKbFilterServiceCallback.
 VOID OibMouFilterServiceCallback(
     _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PVOID InputDataStart,
-    _In_ PVOID InputDataEnd,
+    _In_ PMOUSE_INPUT_DATA InputDataStart,
+    _In_ PMOUSE_INPUT_DATA InputDataEnd,
     _Inout_ PULONG InputDataConsumed
     );

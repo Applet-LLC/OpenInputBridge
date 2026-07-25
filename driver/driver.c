@@ -21,6 +21,16 @@
 // revisit if M5's black-box observation of the real driver's ACL turns out to differ.
 static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)";
 
+// Keyboard/Mouse device setup class GUIDs (see docs/PROTOCOL.md and OpenInputBridge.inx).
+// Used to tell apart which class stack OibEvtDeviceAdd is being called for, since this one
+// driver is registered as an upper filter under both classes' UpperFilters (installer/).
+// IoGetDeviceProperty(..., DevicePropertyClassGuid, ...) returns the class GUID as a
+// printable string (not a binary GUID), so these are compared as strings too.
+static const UNICODE_STRING OibKeyboardClassGuidString =
+    RTL_CONSTANT_STRING(L"{4D36E96B-E325-11CE-BFC1-08002BE10318}");
+static const UNICODE_STRING OibMouseClassGuidString =
+    RTL_CONSTANT_STRING(L"{4D36E96F-E325-11CE-BFC1-08002BE10318}");
+
 NTSTATUS
 DriverEntry(
     _In_ PDRIVER_OBJECT DriverObject,
@@ -62,14 +72,47 @@ OibEvtDeviceAdd(
     _Inout_ PWDFDEVICE_INIT DeviceInit
     )
 {
-    // TODO(M1): PnP calls this once per keyboard/mouse stack as devices are enumerated.
-    // Determine whether DeviceInit targets a Keyboard-class or Mouse-class stack (e.g. via
-    // the resource/compatible IDs available on PWDFDEVICE_INIT at this point) and dispatch
-    // to OibKbdEvtDeviceAdd or OibMouEvtDeviceAdd accordingly.
-    UNREFERENCED_PARAMETER(Driver);
-    UNREFERENCED_PARAMETER(DeviceInit);
+    NTSTATUS status;
+    PDEVICE_OBJECT pdo;
+    WCHAR classGuidBuffer[64];
+    ULONG resultLength = 0;
+    UNICODE_STRING classGuidString;
 
-    return STATUS_NOT_IMPLEMENTED;
+    // PnP calls this once per keyboard/mouse stack as devices are enumerated, since this
+    // driver is registered as an upper filter under both the Keyboard and Mouse device setup
+    // classes (installer/). Determine which class this particular stack belongs to before
+    // creating anything, per the pattern in Microsoft's kbfiltr/moufiltr samples ("query the
+    // device properties ... and based on that, decide to create a filter device object").
+    pdo = WdfFdoInitWdmGetPhysicalDevice(DeviceInit);
+    if (pdo == NULL) {
+        return STATUS_INVALID_DEVICE_REQUEST;
+    }
+
+    status = IoGetDeviceProperty(
+        pdo,
+        DevicePropertyClassGuid,
+        sizeof(classGuidBuffer),
+        classGuidBuffer,
+        &resultLength
+        );
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    RtlInitUnicodeString(&classGuidString, classGuidBuffer);
+
+    if (RtlEqualUnicodeString(&classGuidString, &OibKeyboardClassGuidString, TRUE)) {
+        return OibKbdEvtDeviceAdd(Driver, DeviceInit);
+    }
+
+    if (RtlEqualUnicodeString(&classGuidString, &OibMouseClassGuidString, TRUE)) {
+        return OibMouEvtDeviceAdd(Driver, DeviceInit);
+    }
+
+    // Not a class we filter (shouldn't normally happen given how this driver is installed,
+    // but defensively: per the kbfiltr sample's own guidance, if we're not interested in
+    // filtering this instance we simply return success without creating a framework device).
+    return STATUS_SUCCESS;
 }
 
 VOID
