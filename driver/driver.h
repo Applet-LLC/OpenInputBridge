@@ -19,6 +19,17 @@
 #define OIB_MOUSE_SLOT_COUNT    10
 #define OIB_DEVICE_SLOT_COUNT   (OIB_KEYBOARD_SLOT_COUNT + OIB_MOUSE_SLOT_COUNT)
 
+// Per-control-device context: identifies which \Device\interceptionNN slot this WDFDEVICE is
+// (0..OIB_DEVICE_SLOT_COUNT-1), so ioctl.c's EvtIoDeviceControl can look up the slot's assigned
+// filter FDO (slots.c, M2) without re-deriving NN from the device name at request time.
+typedef struct _OIB_CONTROL_DEVICE_CONTEXT
+{
+    ULONG SlotIndex;
+    BOOLEAN IsKeyboard;
+} OIB_CONTROL_DEVICE_CONTEXT, *POIB_CONTROL_DEVICE_CONTEXT;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(OIB_CONTROL_DEVICE_CONTEXT, OibGetControlDeviceContext)
+
 DRIVER_INITIALIZE DriverEntry;
 
 EVT_WDF_DRIVER_DEVICE_ADD OibEvtDeviceAdd;

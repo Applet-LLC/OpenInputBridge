@@ -9,7 +9,14 @@
 ; the "install method" architecture note in the project plan for why a plain per-hardware-ID
 ; INF install cannot cover "every keyboard/mouse", and docs/PROTOCOL.md for the class GUIDs.
 ;
-; TODO(M6): fill in Manufacturer/Provider/DriverVer/CatalogFile once code-signing setup exists.
+; TODO(M6): fill in Provider/DriverVer/CatalogFile once code-signing setup exists.
+;
+; No [Manufacturer]/[DDInstall.HW] sections: this is a "primitive" driver INF (a driver that
+; is not installed via PnP hardware-ID matching, only ever loaded as a plain kernel service —
+; see installer/ for the actual service creation and class-level UpperFilters registration).
+; Including an empty [Manufacturer] section here makes InfVerif treat the INF as a (broken)
+; PnP-install INF instead ("error 1297: Device driver does not install on any devices, use
+; primitive driver if this is intended"), so it is intentionally omitted.
 
 [Version]
 Signature   = "$WINDOWS NT$"
@@ -19,13 +26,6 @@ Provider    = %ProviderString%
 DriverVer   = ; TODO: set at build time
 CatalogFile = OpenInputBridge.cat
 PnpLockdown = 1
-
-[Manufacturer]
-%ProviderString% = Standard, NT$ARCH$
-
-[Standard.NT$ARCH$]
-; Intentionally no [DDInstall.HW] hardware-ID matches: this driver is not installed via
-; PnP device matching. See installer/ for the actual class-level UpperFilters registration.
 
 [Strings]
 ProviderString = "OpenInputBridge Contributors"

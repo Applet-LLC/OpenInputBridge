@@ -10,6 +10,16 @@
 #include "driver.h"
 #include "kbdfilter.h"
 #include "mousefilter.h"
+#include "ioctl.h"
+
+#include <ntstrsafe.h>
+
+// Grants SYSTEM and built-in Administrators full access, and Everyone (World) generic
+// read/write. The upstream library opens each \\.\interceptionNN with plain GENERIC_READ
+// and no elevation of its own (see docs/PROTOCOL.md), so ordinary unprivileged user-mode
+// processes must be able to open these control devices. This DACL choice is a first cut;
+// revisit if M5's black-box observation of the real driver's ACL turns out to differ.
+static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)";
 
 NTSTATUS
 DriverEntry(
@@ -39,8 +49,8 @@ DriverEntry(
         return status;
     }
 
-    // TODO(M0): implement OibCreateControlDevices() below — must create all
-    // OIB_DEVICE_SLOT_COUNT control devices unconditionally before DriverEntry returns.
+    // Create all OIB_DEVICE_SLOT_COUNT control devices unconditionally before DriverEntry
+    // returns (see OibCreateControlDevices for why partial success is not acceptable here).
     status = OibCreateControlDevices(driver);
 
     return status;
@@ -77,19 +87,91 @@ OibCreateControlDevices(
     _In_ WDFDRIVER Driver
     )
 {
-    UNREFERENCED_PARAMETER(Driver);
+    NTSTATUS status;
+    UNICODE_STRING sddlString;
+    ULONG index;
 
-    // TODO(M0): for NN in 00..OIB_DEVICE_SLOT_COUNT-1:
-    //   - WdfControlDeviceInitAllocate
-    //   - WdfDeviceInitAssignName(L"\\Device\\interceptionNN")
-    //   - WdfDeviceInitSetIoType(WdfDeviceIoBuffered)  (matches METHOD_BUFFERED IOCTLs)
-    //   - WdfDeviceCreate
-    //   - WdfDeviceCreateSymbolicLink(L"\\DosDevices\\interceptionNN")
-    //   - WdfControlFinishInitializing
-    // Store NN in the control device's own context (see ioctl.c) so EvtIoDeviceControl can
-    // look up its assigned slot in the slot table (slots.c, M2).
-    // Must succeed for all OIB_DEVICE_SLOT_COUNT devices unconditionally — see driver.h and
-    // docs/PROTOCOL.md for why partial success is not acceptable here.
+    RtlInitUnicodeString(&sddlString, OibControlDeviceSddl);
 
-    return STATUS_NOT_IMPLEMENTED;
+    // Must create all OIB_DEVICE_SLOT_COUNT devices unconditionally, independent of how many
+    // physical keyboards/mice are attached: the unmodified upstream interception_create_context()
+    // fails outright if any one of its 20 CreateFileA calls fails (see docs/PROTOCOL.md). If
+    // any slot below fails, we return failure and let DriverEntry fail the load — WDF tears down
+    // the already-created control devices (parented to the WDFDRIVER) as part of that unwind, so
+    // there is no partial, half-usable device set left behind.
+    for (index = 0; index < OIB_DEVICE_SLOT_COUNT; index++) {
+        PWDFDEVICE_INIT deviceInit;
+        WDF_OBJECT_ATTRIBUTES attributes;
+        WDF_IO_QUEUE_CONFIG queueConfig;
+        WDFDEVICE controlDevice;
+        POIB_CONTROL_DEVICE_CONTEXT context;
+        WCHAR deviceNameBuffer[sizeof(L"\\Device\\interception99")];
+        WCHAR symlinkNameBuffer[sizeof(L"\\DosDevices\\interception99")];
+        UNICODE_STRING deviceName;
+        UNICODE_STRING symlinkName;
+
+        status = RtlStringCbPrintfW(
+            deviceNameBuffer,
+            sizeof(deviceNameBuffer),
+            L"\\Device\\interception%02lu",
+            index
+            );
+        if (!NT_SUCCESS(status)) {
+            return status;
+        }
+        RtlInitUnicodeString(&deviceName, deviceNameBuffer);
+
+        deviceInit = WdfControlDeviceInitAllocate(Driver, &sddlString);
+        if (deviceInit == NULL) {
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
+
+        WdfDeviceInitSetIoType(deviceInit, WdfDeviceIoBuffered);
+
+        status = WdfDeviceInitAssignName(deviceInit, &deviceName);
+        if (!NT_SUCCESS(status)) {
+            WdfDeviceInitFree(deviceInit);
+            return status;
+        }
+
+        WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, OIB_CONTROL_DEVICE_CONTEXT);
+
+        status = WdfDeviceCreate(&deviceInit, &attributes, &controlDevice);
+        if (!NT_SUCCESS(status)) {
+            // deviceInit is freed by the framework on failure of WdfDeviceCreate itself.
+            return status;
+        }
+
+        context = OibGetControlDeviceContext(controlDevice);
+        context->SlotIndex = index;
+        context->IsKeyboard = (BOOLEAN)(index < OIB_KEYBOARD_SLOT_COUNT);
+
+        WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchParallel);
+        queueConfig.EvtIoDeviceControl = OibCtlEvtIoDeviceControl;
+
+        status = WdfIoQueueCreate(controlDevice, &queueConfig, WDF_NO_OBJECT_ATTRIBUTES, WDF_NO_HANDLE);
+        if (!NT_SUCCESS(status)) {
+            return status;
+        }
+
+        status = RtlStringCbPrintfW(
+            symlinkNameBuffer,
+            sizeof(symlinkNameBuffer),
+            L"\\DosDevices\\interception%02lu",
+            index
+            );
+        if (!NT_SUCCESS(status)) {
+            return status;
+        }
+        RtlInitUnicodeString(&symlinkName, symlinkNameBuffer);
+
+        status = WdfDeviceCreateSymbolicLink(controlDevice, &symlinkName);
+        if (!NT_SUCCESS(status)) {
+            return status;
+        }
+
+        WdfControlFinishInitializing(controlDevice);
+    }
+
+    return STATUS_SUCCESS;
 }
