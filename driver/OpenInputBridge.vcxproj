@@ -58,17 +58,6 @@ added later following the same sample's pattern.
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
     <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
-    <!--
-      TODO(M6): OpenInputBridge.inx deliberately has no [DDInstall.HW] section — this driver
-      is not installed via PnP hardware-ID matching (see the .inx file's own header comment
-      and the project plan's "install method" note: installer/ does class-level UpperFilters
-      registration instead, and M7's attestation-signing flow regenerates the catalog via
-      Partner Center rather than relying on a local Inf2Cat pass). InfVerif's default "Windows
-      Driver" ruleset rejects an INF that doesn't install on any device (error 1297: "use
-      primitive driver if this is intended"), so local Inf2Cat/catalog validation is disabled
-      for now; revisit alongside the real primitive/class-filter INF design in M6/M7.
-    -->
-    <EnableInf2cat>false</EnableInf2cat>
   </PropertyGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
@@ -126,7 +115,18 @@ added later following the same sample's pattern.
     <ClCompile Include="slots.c" />
   </ItemGroup>
   <ItemGroup>
-    <Inf Exclude="@(Inf)" Include="*.inf;*.inx" />
+    <!--
+      Pinned DateStamp rather than the WDK default of "*" (today's date): Inf2Cat's
+      "Signability test" rejects a DriverVer date it considers postdated relative to this
+      Inf2Cat build's own notion of "now", which does not necessarily track the build
+      machine's system clock. A fixed date sidesteps that entirely and is also more
+      reproducible (the .inf's content doesn't depend on which day it happened to be built).
+      Bump this if it ever again trips a "postdated DriverVer" failure.
+    -->
+    <Inf Exclude="@(Inf)" Include="*.inf;*.inx">
+      <SpecifyDriverVerDirectiveDate>true</SpecifyDriverVerDirectiveDate>
+      <DateStamp>01/01/2026</DateStamp>
+    </Inf>
     <FilesToPackage Include="$(TargetPath)" Condition="'$(ConfigurationType)'=='Driver' or '$(ConfigurationType)'=='DynamicLibrary'" />
   </ItemGroup>
   <ItemGroup>

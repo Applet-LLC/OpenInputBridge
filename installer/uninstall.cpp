@@ -2,55 +2,30 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// Uninstaller: reverses install.cpp — removes the service from both device classes'
-// UpperFilters (leaving other entries intact) and marks the service itself for deletion. Also
-// requires a reboot to take effect, for the same reason installation does (see common.h).
+// Uninstaller: reverses install.cpp — removes OpenInputBridge from both device classes'
+// UpperFilters first (leaving other entries intact), then removes the driver package (service
+// + driver store entry) via DiUninstallDriver, which automatically reverses whatever
+// DiInstallDriver did (see common.h and driver/OpenInputBridge.inx). Also requires a reboot to
+// take effect, for the same reason installation does.
 
 #include "common.h"
 
+#include <newdev.h>
+
+#include <filesystem>
 #include <cstdio>
+
+#pragma comment(lib, "Newdev.lib")
 
 namespace OpenInputBridge {
 
 namespace {
 
-bool RemoveDriverService()
+std::filesystem::path GetModuleDirectory()
 {
-    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
-    if (scm == nullptr) {
-        wprintf(L"[ERROR] OpenSCManager failed: %lu\n", GetLastError());
-        return false;
-    }
-
-    SC_HANDLE service = OpenServiceW(scm, ServiceName, SERVICE_ALL_ACCESS);
-    if (service == nullptr) {
-        DWORD error = GetLastError();
-        CloseServiceHandle(scm);
-
-        if (error == ERROR_SERVICE_DOES_NOT_EXIST) {
-            return true; // Nothing to remove.
-        }
-
-        wprintf(L"[ERROR] OpenService failed: %lu\n", error);
-        return false;
-    }
-
-    // Marks the service for deletion. This is a boot-start driver almost certainly still
-    // attached to live keyboard/mouse device stacks, so it can't be unloaded on the spot —
-    // the actual removal happens once it's no longer running, i.e. after the reboot this
-    // function's caller prompts for.
-    BOOL deleted = DeleteService(service);
-    DWORD deleteError = deleted ? ERROR_SUCCESS : GetLastError();
-
-    CloseServiceHandle(service);
-    CloseServiceHandle(scm);
-
-    if (!deleted && deleteError != ERROR_SERVICE_MARKED_FOR_DELETE) {
-        wprintf(L"[ERROR] DeleteService failed: %lu\n", deleteError);
-        return false;
-    }
-
-    return true;
+    wchar_t modulePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+    return std::filesystem::path(modulePath).parent_path();
 }
 
 } // namespace
@@ -75,15 +50,31 @@ int RunUninstall()
     }
     wprintf(L"Removed '%s' from the Keyboard and Mouse device classes' upper filters.\n", ServiceName);
 
-    if (!RemoveDriverService()) {
+    std::filesystem::path infPath = GetModuleDirectory() / L"drivers" / InfFileName;
+
+    if (!std::filesystem::exists(infPath)) {
+        wprintf(
+            L"[WARNING] Driver package not found at %s — skipping DiUninstallDriver (the "
+            L"UpperFilters entries above are already removed; the service, if still "
+            L"registered, will need to be cleaned up separately).\n",
+            infPath.c_str()
+            );
+        return 0;
+    }
+
+    BOOL needReboot = FALSE;
+
+    if (!DiUninstallDriverW(nullptr, infPath.c_str(), 0, &needReboot)) {
+        wprintf(L"[ERROR] DiUninstallDriver failed: %lu\n", GetLastError());
         return 1;
     }
-    wprintf(L"Removed service '%s'.\n", ServiceName);
+    wprintf(L"Removed the %s driver package.\n", ServiceName);
 
     wprintf(
         L"\nUninstallation complete. A REBOOT is required to fully unload %s and rebuild the "
-        L"device filter chains without it.\n",
-        ServiceName
+        L"device filter chains without it.%s\n",
+        ServiceName,
+        needReboot ? L" (DiUninstallDriver also reported a reboot is needed.)" : L""
         );
 
     return 0;

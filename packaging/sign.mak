@@ -17,21 +17,44 @@
 #   nmake -f packaging\sign.mak package    (stage, then zip Signed\ into dist\)
 #
 # Prerequisite: both projects must already be built in Release|x64 (see README.md's ビルド方法).
-# This does NOT run Inf2Cat/catalog generation — see OpenInputBridge.vcxproj's EnableInf2cat
-# note and the M6/M7 TODO on driver/OpenInputBridge.inx for why that's still pending, separate
-# from Authenticode-signing the .sys binary itself here.
+# driver/OpenInputBridge.vcxproj's Inf2Cat step (re-enabled once OpenInputBridge.inx became a
+# proper primitive-driver INF — see its own header comment) produces the driver package folder
+# this reads from: x64\Release\OpenInputBridge\{OpenInputBridge.inf, openinputbridge.cat,
+# OpenInputBridge.sys}.
 #
 # Signed\ is a deliberate hand-off point, not just a copy for convenience: once this driver
-# goes through Microsoft attestation/WHQL signing, the files Partner Center hands back replace
-# what sign.mak would otherwise produce, dropped into Signed\ the same way — `package` below
-# doesn't care how the files it zips got signed, only that they're sitting in Signed\. Neither
-# Signed\ nor dist\ are checked into git (build/signing output, not source — see .gitignore).
+# goes through HLK/WHQL, the drivers\ (inf+cat+sys) and symbols\ (pdb) folders HLK asks for as
+# submission input are exactly what ends up here, and whatever comes back from that process can
+# replace what sign.mak would otherwise produce, dropped into Signed\ the same way — `package`
+# below doesn't care how the files it zips got signed, only that they're sitting in Signed\.
+# Neither Signed\ nor dist\ are checked into git (build/signing output, not source — see
+# .gitignore).
+#
+# Distribution layout (matches what a primitive-driver installer needs — see
+# installer/install.cpp's InfPath lookup):
+#   OpenInputBridgeSetup.exe
+#   drivers\OpenInputBridge.inf
+#   drivers\OpenInputBridge.cat
+#   drivers\OpenInputBridge.sys
+#   symbols\OpenInputBridge.pdb
 
-TARGET_SYS	= ..\driver\x64\Release\OpenInputBridge.sys
+DRIVER_PACKAGE_DIR	= ..\driver\x64\Release\OpenInputBridge
+
+TARGET_SYS	= $(DRIVER_PACKAGE_DIR)\OpenInputBridge.sys
+
+TARGET_INF	= $(DRIVER_PACKAGE_DIR)\OpenInputBridge.inf
+
+TARGET_CAT	= $(DRIVER_PACKAGE_DIR)\openinputbridge.cat
+
+TARGET_PDB	= ..\driver\x64\Release\OpenInputBridge.pdb
 
 TARGET_BIN	= ..\installer\x64\Release\OpenInputBridgeSetup.exe
 
 SIGNED_DIR	= Signed
+
+SIGNED_DRIVERS_DIR	= $(SIGNED_DIR)\drivers
+
+SIGNED_SYMBOLS_DIR	= $(SIGNED_DIR)\symbols
 
 DIST_DIR	= dist
 
@@ -43,30 +66,38 @@ SIGNTOOL	= "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool
 
 # rules		###############################################################
 
+# .cat is signed alongside .sys/.exe: a catalog is itself an Authenticode-signable file, and
+# an unsigned catalog is no better than no catalog at all for code-integrity purposes. .inf
+# and .pdb are not signed (an INF is plain text with no Authenticode container, and a PDB is a
+# debug-symbol file with no bearing on what actually loads/runs).
 all:
 		@echo [sign] signing start
-		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN) $(TARGET_SYS)
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN) $(TARGET_SYS) $(TARGET_CAT)
 		@echo [sign] signing done
 
 verify:
 		$(SIGNTOOL) verify /v /pa $(TARGET_BIN)
 		$(SIGNTOOL) verify /v /pa $(TARGET_SYS)
+		$(SIGNTOOL) verify /v /pa $(TARGET_CAT)
 
-# Copies the already-signed binaries into a clean staging folder. Deliberately does NOT
-# depend on "all": re-running "all" re-signs (Authenticode just stacks another signature on
-# top rather than erroring, but there's no reason to do that every time you re-stage) — run
-# "all" once, then "stage"/"package" as often as needed. install.cpp expects
-# OpenInputBridge.sys to sit alongside OpenInputBridgeSetup.exe at install time (see
-# installer/install.cpp's GetModuleDirectory-based lookup), so Signed\ is exactly what a
-# distributed copy of the installer needs to ship with.
+# Copies the already-signed binaries (plus the unsigned .inf/.pdb) into a clean staging
+# folder, laid out the way installer/install.cpp and an HLK submission both expect. Deliberately
+# does NOT depend on "all": re-running "all" re-signs (Authenticode just stacks another
+# signature on top rather than erroring, but there's no reason to do that every time you
+# re-stage) — run "all" once, then "stage"/"package" as often as needed.
 #
 # Destinations end in "\." rather than a bare "\": a trailing backslash as the last character
 # of an nmake command line is parsed as a line-continuation marker (merging the next command
 # into this one), not as part of the path.
 stage:
 		@if not exist $(SIGNED_DIR) mkdir $(SIGNED_DIR)
-		copy /y $(TARGET_SYS) $(SIGNED_DIR)\.
+		@if not exist $(SIGNED_DRIVERS_DIR) mkdir $(SIGNED_DRIVERS_DIR)
+		@if not exist $(SIGNED_SYMBOLS_DIR) mkdir $(SIGNED_SYMBOLS_DIR)
 		copy /y $(TARGET_BIN) $(SIGNED_DIR)\.
+		copy /y $(TARGET_INF) $(SIGNED_DRIVERS_DIR)\.
+		copy /y $(TARGET_CAT) $(SIGNED_DRIVERS_DIR)\.
+		copy /y $(TARGET_SYS) $(SIGNED_DRIVERS_DIR)\.
+		copy /y $(TARGET_PDB) $(SIGNED_SYMBOLS_DIR)\.
 
 # Zips Signed\ as-is into dist\OpenInputBridge.zip. Uses PowerShell's Compress-Archive rather
 # than a separate zip tool dependency — available on every supported Windows version.

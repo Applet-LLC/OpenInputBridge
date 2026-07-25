@@ -2,10 +2,18 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// Shared constants and registry/service helpers used by both install.cpp and uninstall.cpp.
-// See the project plan's "4. インストール方式" section: this driver is registered as a
-// class-level upper filter (not matched via INF hardware IDs), so installation is this small
-// installer's job — the .inx in /driver exists only for signing/cataloging.
+// Shared constants and helpers used by both install.cpp and uninstall.cpp.
+//
+// Driver package installation (staging OpenInputBridge.sys into the driver store, creating
+// the SERVICE_KERNEL_DRIVER/SERVICE_SYSTEM_START service) is done via DiInstallDriver /
+// DiUninstallDriver against driver/OpenInputBridge.inf — see
+// https://learn.microsoft.com/windows-hardware/drivers/develop/creating-a-primitive-driver.
+// Class-level UpperFilters registration is deliberately NOT part of that INF (InfVerif's
+// DCH-compliance rule for primitive drivers forbids writing to a registry path outside the
+// driver's own HKR-relative scope, and "affects every keyboard/mouse system-wide" is exactly
+// that) — so it's done here instead, as a plain registry-API call alongside (not instead of)
+// the DiInstallDriver/DiUninstallDriver calls. See driver/OpenInputBridge.inx's header comment
+// for the full reasoning.
 
 #pragma once
 
@@ -13,10 +21,10 @@
 
 namespace OpenInputBridge {
 
-// Service name (also used as the driver's display name) and the driver binary's file name.
-// Must match driver/OpenInputBridge.vcxproj's TargetName.
+// Service name / driver package file names. Must match driver/OpenInputBridge.vcxproj's
+// TargetName and driver/OpenInputBridge.inx.
 inline constexpr wchar_t ServiceName[] = L"OpenInputBridge";
-inline constexpr wchar_t DriverFileName[] = L"OpenInputBridge.sys";
+inline constexpr wchar_t InfFileName[] = L"OpenInputBridge.inf";
 
 // Device setup class registry paths (relative to HKEY_LOCAL_MACHINE). GUIDs from
 // docs/PROTOCOL.md / driver/OpenInputBridge.inx.
@@ -27,8 +35,8 @@ inline constexpr wchar_t MouseClassRegistryPath[] =
 
 inline constexpr wchar_t UpperFiltersValueName[] = L"UpperFilters";
 
-// True if the current process token is elevated. Installing/removing a kernel driver service
-// and editing HKLM\SYSTEM requires this.
+// True if the current process token is elevated. DiInstallDriver/DiUninstallDriver and
+// editing HKLM\SYSTEM both require this.
 bool IsRunningElevated();
 
 // Appends entryName to the UpperFilters REG_MULTI_SZ value under

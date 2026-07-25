@@ -2,30 +2,66 @@
 ; SPDX-License-Identifier: MIT
 ; Licensed under the MIT License. See LICENSE file in the project root for full license text.
 ;
-; Minimal INF, used only for driver signing/cataloging (attestation signing via the Windows
-; Hardware Dev Center dashboard requires an INF for the submission). Actual installation
-; (service creation and class-level UpperFilters registration for both the Keyboard and Mouse
-; device setup classes) is performed by installer/, NOT by this INF's DDInstall section — see
-; the "install method" architecture note in the project plan for why a plain per-hardware-ID
-; INF install cannot cover "every keyboard/mouse", and docs/PROTOCOL.md for the class GUIDs.
+; Primitive driver INF (Windows 10 1903+; see
+; https://learn.microsoft.com/windows-hardware/drivers/develop/creating-a-primitive-driver):
+; installed/uninstalled via DiInstallDriver/DiUninstallDriver (installer/), not matched to any
+; hardware ID. [DefaultInstall.NTamd64] stages OpenInputBridge.sys into the driver store and
+; registers it as a SERVICE_KERNEL_DRIVER/SERVICE_SYSTEM_START service (see docs/PROTOCOL.md
+; for why boot-early start matters here).
 ;
-; TODO(M6): fill in Provider/DriverVer/CatalogFile once code-signing setup exists.
+; No [Manufacturer] section: its presence — even empty — makes InfVerif treat this as a
+; (broken) PnP-match INF instead ("error 1297: Device driver does not install on any devices,
+; use primitive driver if this is intended"), which is exactly what led to this design.
 ;
-; No [Manufacturer]/[DDInstall.HW] sections: this is a "primitive" driver INF (a driver that
-; is not installed via PnP hardware-ID matching, only ever loaded as a plain kernel service —
-; see installer/ for the actual service creation and class-level UpperFilters registration).
-; Including an empty [Manufacturer] section here makes InfVerif treat the INF as a (broken)
-; PnP-install INF instead ("error 1297: Device driver does not install on any devices, use
-; primitive driver if this is intended"), so it is intentionally omitted.
+; No [DefaultUninstall] section: DiUninstallDriver reverses [DefaultInstall.NTamd64]'s actions
+; automatically — an explicit uninstall section is neither required nor wanted for a primitive
+; driver (see the Microsoft doc above, "レガシ互換性").
+;
+; Deliberately does NOT AddReg the Keyboard/Mouse device setup classes' UpperFilters here:
+; InfVerif's DCH-compliance rule (required for primitive drivers, "error 1321: Registry root
+; ... is not isolated to HKR") forbids an INF from writing to an absolute registry path outside
+; the driver's own HKR-relative scope — and a primitive driver, having no matched device, has
+; no HKR context to be relative to in the first place. Registering as a *class-level* upper
+; filter (affecting every keyboard/mouse system-wide, not one matched device) is exactly the
+; kind of system-wide side effect DCH isolation exists to prevent doing declaratively from an
+; INF. So that step stays in installer/ as a direct registry-API call, done alongside (not
+; instead of) DiInstallDriver/DiUninstallDriver — see installer/common.cpp.
 
 [Version]
 Signature   = "$WINDOWS NT$"
 Class       = System
 ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider    = %ProviderString%
-DriverVer   = ; TODO: set at build time
+DriverVer   = ; stamped at build time
 CatalogFile = OpenInputBridge.cat
 PnpLockdown = 1
 
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,
+
+[SourceDisksFiles]
+OpenInputBridge.sys = 1
+
+[DefaultInstall.NTamd64]
+CopyFiles = OpenInputBridge.CopyFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService = OpenInputBridge,,OpenInputBridge.ServiceInstall
+
+[OpenInputBridge.CopyFiles]
+OpenInputBridge.sys
+
+[OpenInputBridge.ServiceInstall]
+DisplayName   = %ServiceDisplayName%
+ServiceType   = 1 ; SERVICE_KERNEL_DRIVER
+StartType     = 1 ; SERVICE_SYSTEM_START
+ErrorControl  = 1 ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\OpenInputBridge.sys
+
 [Strings]
-ProviderString = "OpenInputBridge Contributors"
+ProviderString     = "OpenInputBridge Contributors"
+ServiceDisplayName = "OpenInputBridge"
+DiskName           = "OpenInputBridge Installation Disk"
