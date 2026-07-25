@@ -36,6 +36,16 @@ added later following the same sample's pattern.
     <DriverType>KMDF</DriverType>
     <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
     <ConfigurationType>Driver</ConfigurationType>
+    <!--
+      $(SignMode) is a project PROPERTY read by the WDK build's SignTask (distinct from the
+      similarly-named %(DriverSign.SignMode) ITEM metadata below, which the targets do NOT
+      check — easy to confuse). Off skips the framework's auto test-signing for Release, so
+      the shipped .sys carries exactly one (real, EV) signature from packaging/sign.mak
+      instead of a leftover test one alongside it. Debug is left at the framework default
+      (effectively TestSign) since that's what makes an iterative local Debug build loadable
+      on a test-signing-enabled dev machine without needing the real certificate every time.
+    -->
+    <SignMode>Off</SignMode>
   </PropertyGroup>
   <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <TargetVersion>Windows10</TargetVersion>
@@ -87,9 +97,8 @@ added later following the same sample's pattern.
     <Link>
       <AdditionalDependencies>%(AdditionalDependencies);$(DDK_LIB_PATH)\ntstrsafe.lib</AdditionalDependencies>
     </Link>
-    <DriverSign>
-      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
-    </DriverSign>
+    <!-- No <DriverSign> block: signing is controlled by the $(SignMode)=Off project property
+         set above (Release Configuration PropertyGroup), not by DriverSign item metadata. -->
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>

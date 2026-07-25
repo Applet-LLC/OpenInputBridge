@@ -43,6 +43,9 @@ BuildLog.htm
 # Driver package / signing artifacts
 *.ddf
 *.cab
+*.zip
+packaging/Signed/
+packaging/dist/
 
 # Test signing certs (never commit real signing material)
 TestCert.*
