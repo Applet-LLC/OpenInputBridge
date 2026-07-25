@@ -23,7 +23,7 @@
 # OpenInputBridge.sys}.
 #
 # Signed\ is a deliberate hand-off point, not just a copy for convenience: once this driver
-# goes through HLK/WHQL, the drivers\ (inf+cat+sys) and symbols\ (pdb) folders HLK asks for as
+# goes through HLK/WHQL, the drivers\ (inf+cat+sys) and Symbol\ (pdb) folders HLK asks for as
 # submission input are exactly what ends up here, and whatever comes back from that process can
 # replace what sign.mak would otherwise produce, dropped into Signed\ the same way — `package`
 # below doesn't care how the files it zips got signed, only that they're sitting in Signed\.
@@ -36,7 +36,7 @@
 #   drivers\OpenInputBridge.inf
 #   drivers\OpenInputBridge.cat
 #   drivers\OpenInputBridge.sys
-#   symbols\OpenInputBridge.pdb
+#   Symbol\OpenInputBridge.pdb
 
 DRIVER_PACKAGE_DIR	= ..\driver\x64\Release\OpenInputBridge
 
@@ -54,7 +54,7 @@ SIGNED_DIR	= Signed
 
 SIGNED_DRIVERS_DIR	= $(SIGNED_DIR)\drivers
 
-SIGNED_SYMBOLS_DIR	= $(SIGNED_DIR)\symbols
+SIGNED_SYMBOLS_DIR	= $(SIGNED_DIR)\Symbol
 
 DIST_DIR	= dist
 
