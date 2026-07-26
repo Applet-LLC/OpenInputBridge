@@ -74,10 +74,12 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 - 記事の実例: x→yに変換するアプリを先に起動し、y→zに変換するアプリを後から起動すると、xはx→y→zと
   連鎖的に変換される（逆順に起動すると、xはyへの変換の後にz変換アプリを通らないため、単純にyのままになる）
 
-**現在の実装（M5, `driver/ioctl.c` の `OibDispatchKeyboardStroke`/`OibDispatchMouseStroke`）との差分**:
-現状は「フィルタが一致した中でprecedence最大の1つだけが捕捉し、他には一切見せない」という単純化した方式であり、
-このフックチェーンモデル（各フックの送出結果が次の低precedenceフックへの入力になる）とは異なる。
-`docs/PROTOCOL.md` の当該注記とあわせて、M5実装をこのチェーンモデルに合わせて修正するかどうかはユーザーと要相談。
+**対応状況**: 2026-07-26付でこのフックチェーンモデルに実装を合わせた（`driver/ioctl.c` の
+`OibFindNextChainRecipient` / `OibIsHigherPriority`。`IOCTL_WRITE`（`OibCtlHandleWrite`）は
+書き込み元インスタンスより下位のチェーン位置からレコード単位で再投入し、どこにも一致しなければ
+実際のハードウェア入力ストリームへ届く）。詳細は `docs/PROTOCOL.md` のprecedence/WRITEの注記を参照。
+フィルタのビット照合規則自体（`OibComputeKeyboardRequiredFilterBits`等）は引き続き推測実装のまま、
+M5のブラックボックス検証対象として残っている。
 
 ### 実機ブラックボックステストについて（予定・M5フェーズ）
 

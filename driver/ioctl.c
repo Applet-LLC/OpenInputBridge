@@ -13,6 +13,14 @@
 
 static VOID OibFileContextQueuePush(_Inout_ POIB_FILE_CONTEXT FileContext, _In_ PVOID StrokeData, _In_ SIZE_T StrokeSize, _Out_ PBOOLEAN BecameNonEmpty);
 static ULONG OibFileContextQueueDrain(_Inout_ POIB_FILE_CONTEXT FileContext, _Out_writes_bytes_(OutputBufferSize) PVOID OutputBuffer, _In_ SIZE_T OutputBufferSize, _In_ SIZE_T StrokeSize);
+static POIB_FILE_CONTEXT OibFindNextChainRecipient(_In_ ULONG SlotIndex, _In_opt_ POIB_FILE_CONTEXT After, _In_ USHORT RequiredFilterBits);
+static USHORT OibComputeKeyboardRequiredFilterBits(_In_ USHORT RawFlags);
+static USHORT OibComputeMouseRequiredFilterBits(_In_ PMOUSE_INPUT_DATA Stroke);
+
+// Monotonically increasing counter, one tick per successfully-opened \\.\interceptionNN
+// handle (OibCtlEvtFileCreate). Breaks Precedence ties in the hook chain — see
+// "Precedence hook chain" in ioctl.h.
+static LONG OibNextAttachSequence = 0;
 
 VOID
 OibCtlEvtIoDeviceControl(
@@ -47,7 +55,7 @@ OibCtlEvtIoDeviceControl(
         return;
 
     case IOCTL_WRITE:
-        OibCtlHandleWrite(Request, WdfIoQueueGetDevice(Queue), InputBufferLength);
+        OibCtlHandleWrite(Request, WdfIoQueueGetDevice(Queue), fileObject, InputBufferLength);
         return;
 
     case IOCTL_SET_PRECEDENCE:
@@ -145,19 +153,24 @@ VOID
 OibCtlHandleWrite(
     _In_ WDFREQUEST Request,
     _In_ WDFDEVICE ControlDevice,
+    _In_ WDFFILEOBJECT FileObject,
     _In_ size_t InputBufferLength
     )
 {
     POIB_CONTROL_DEVICE_CONTEXT ctlContext;
+    POIB_FILE_CONTEXT writerContext;
     WDFDEVICE filterDevice;
-    NTSTATUS status;
+    NTSTATUS filterDeviceStatus;
     PVOID inputBuffer = NULL;
     size_t inputBufferSize = 0;
     size_t strokeSize;
     ULONG strokeCount;
-    ULONG_PTR bytesWritten = 0;
+    ULONG deliveredCount = 0;
+    ULONG i;
+    NTSTATUS status;
 
     ctlContext = OibGetControlDeviceContext(ControlDevice);
+    writerContext = OibGetFileContext(FileObject);
     strokeSize = ctlContext->IsKeyboard ? sizeof(KEYBOARD_INPUT_DATA) : sizeof(MOUSE_INPUT_DATA);
 
     if (InputBufferLength != 0) {
@@ -170,27 +183,67 @@ OibCtlHandleWrite(
 
     strokeCount = (ULONG)(inputBufferSize / strokeSize);
 
-    status = OibSlotAcquireFilterDevice(ctlContext->SlotIndex, &filterDevice);
-    if (NT_SUCCESS(status)) {
-        // Injecting synthetic input and releasing a stroke previously captured via
-        // IOCTL_READ are the same operation here: both just hand a raw stroke array to the
-        // saved ClassService, exactly as if the port/HID driver below had reported it — see
-        // docs/PROTOCOL.md.
-        if (strokeCount > 0) {
+    // Resolved once up front; only actually needed if/when some record below falls all the
+    // way through the chain to real hardware delivery. Its absence (no physical device
+    // currently assigned to this slot) is not an error — the chain portion below still runs
+    // normally either way, matching OibCtlHandleGetHardwareId's empty-slot precedent.
+    filterDeviceStatus = OibSlotAcquireFilterDevice(ctlContext->SlotIndex, &filterDevice);
+
+    // Injecting synthetic input and releasing/replacing a stroke previously captured via
+    // IOCTL_READ are the same operation here: both re-enter the precedence hook chain
+    // starting strictly below the writer's own position (see "Precedence hook chain" in
+    // ioctl.h) — record by record, since each one independently either gets caught by a
+    // lower-precedence instance's filter or falls through to real hardware delivery.
+    for (i = 0; i < strokeCount; i++) {
+        PVOID strokeAt = (PUCHAR)inputBuffer + ((SIZE_T)i * strokeSize);
+        POIB_FILE_CONTEXT recipient;
+        BOOLEAN becameNonEmpty;
+        USHORT requiredBits = 0;
+
+        if (ctlContext->IsKeyboard) {
+            requiredBits = OibComputeKeyboardRequiredFilterBits(((PKEYBOARD_INPUT_DATA)strokeAt)->Flags);
+        } else {
+            requiredBits = OibComputeMouseRequiredFilterBits((PMOUSE_INPUT_DATA)strokeAt);
+        }
+
+        OibSlotLockInstances(ctlContext->SlotIndex);
+        recipient = (requiredBits != 0)
+            ? OibFindNextChainRecipient(ctlContext->SlotIndex, writerContext, requiredBits)
+            : NULL;
+
+        if (recipient != NULL) {
+            OibFileContextQueuePush(recipient, strokeAt, strokeSize, &becameNonEmpty);
+
+            if (becameNonEmpty && recipient->UnemptyEvent != NULL) {
+                KeSetEvent(recipient->UnemptyEvent, IO_NO_INCREMENT, FALSE);
+            }
+        }
+        OibSlotUnlockInstances(ctlContext->SlotIndex);
+
+        if (recipient != NULL) {
+            // Caught by a lower-precedence instance: stays in the chain, not delivered to
+            // hardware (yet) — see OibCtlHandleWrite's own header comment.
+            deliveredCount++;
+            continue;
+        }
+
+        // Fell off the bottom of the chain: final delivery to the real ClassService, if this
+        // slot currently has a physical device assigned.
+        if (NT_SUCCESS(filterDeviceStatus)) {
             ULONG consumed = 0;
 
             if (ctlContext->IsKeyboard) {
                 POIB_KBD_FILTER_CONTEXT kbdContext = OibGetKbdFilterContext(filterDevice);
 
                 if (kbdContext->UpperConnectData.ClassService != NULL) {
-                    PKEYBOARD_INPUT_DATA strokes = (PKEYBOARD_INPUT_DATA)inputBuffer;
+                    PKEYBOARD_INPUT_DATA stroke = (PKEYBOARD_INPUT_DATA)strokeAt;
 
 #pragma warning(push)
 #pragma warning(disable:4055) // PVOID -> PSERVICE_CALLBACK_ROUTINE conversion, same as kbdfilter.c
                     (*(PSERVICE_CALLBACK_ROUTINE)(ULONG_PTR)kbdContext->UpperConnectData.ClassService)(
                         kbdContext->UpperConnectData.ClassDeviceObject,
-                        strokes,
-                        strokes + strokeCount,
+                        stroke,
+                        stroke + 1,
                         &consumed
                         );
 #pragma warning(pop)
@@ -199,34 +252,29 @@ OibCtlHandleWrite(
                 POIB_MOU_FILTER_CONTEXT mouContext = OibGetMouFilterContext(filterDevice);
 
                 if (mouContext->UpperConnectData.ClassService != NULL) {
-                    PMOUSE_INPUT_DATA strokes = (PMOUSE_INPUT_DATA)inputBuffer;
+                    PMOUSE_INPUT_DATA stroke = (PMOUSE_INPUT_DATA)strokeAt;
 
 #pragma warning(push)
 #pragma warning(disable:4055)
                     (*(PSERVICE_CALLBACK_ROUTINE)(ULONG_PTR)mouContext->UpperConnectData.ClassService)(
                         mouContext->UpperConnectData.ClassDeviceObject,
-                        strokes,
-                        strokes + strokeCount,
+                        stroke,
+                        stroke + 1,
                         &consumed
                         );
 #pragma warning(pop)
                 }
             }
-
-            bytesWritten = (ULONG_PTR)consumed * strokeSize;
         }
 
-        OibSlotReleaseFilterDeviceReference(filterDevice);
-        status = STATUS_SUCCESS;
-    } else {
-        // No physical device currently assigned to this slot: there's nothing to inject
-        // into, so succeed with zero bytes written rather than fail — same graceful
-        // degradation as OibCtlHandleGetHardwareId, see docs/PROTOCOL.md.
-        status = STATUS_SUCCESS;
-        bytesWritten = 0;
+        deliveredCount++;
     }
 
-    WdfRequestCompleteWithInformation(Request, status, bytesWritten);
+    if (NT_SUCCESS(filterDeviceStatus)) {
+        OibSlotReleaseFilterDeviceReference(filterDevice);
+    }
+
+    WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, (ULONG_PTR)(deliveredCount * strokeSize));
 }
 
 VOID
@@ -248,6 +296,7 @@ OibCtlEvtFileCreate(
     fileContext->IsKeyboard = ctlContext->IsKeyboard;
     fileContext->Filter = 0;
     fileContext->Precedence = 0;
+    fileContext->AttachSequence = InterlockedIncrement(&OibNextAttachSequence);
     fileContext->UnemptyEvent = NULL;
     fileContext->QueueHead = 0;
     fileContext->QueueCount = 0;
@@ -554,60 +603,6 @@ OibComputeKeyboardRequiredFilterBits(
     return required;
 }
 
-VOID
-OibDispatchKeyboardStroke(
-    _In_ ULONG SlotIndex,
-    _In_ PKEYBOARD_INPUT_DATA Stroke,
-    _Out_ PBOOLEAN Captured
-    )
-{
-    USHORT requiredBits;
-    PLIST_ENTRY head;
-    PLIST_ENTRY entry;
-    POIB_FILE_CONTEXT best = NULL;
-    LONG bestPrecedence = 0;
-    BOOLEAN becameNonEmpty;
-
-    *Captured = FALSE;
-    requiredBits = OibComputeKeyboardRequiredFilterBits(Stroke->Flags);
-
-    OibSlotLockInstances(SlotIndex);
-
-    // M5 (best-effort, pending black-box validation — see ioctl.h): among every open instance
-    // whose filter matches, only the single one with the highest Precedence captures the
-    // stroke (ties go to whichever was attached first). Everyone else neither sees nor blocks
-    // it, and it still doesn't reach the real ClassService.
-    head = OibSlotGetInstancesListHead(SlotIndex);
-    for (entry = head->Flink; entry != head; entry = entry->Flink) {
-        POIB_FILE_CONTEXT fileContext = CONTAINING_RECORD(entry, OIB_FILE_CONTEXT, SlotLinkage);
-
-        if (fileContext->Filter == 0) {
-            continue; // FILTER_KEY_NONE: never capture.
-        }
-
-        if ((fileContext->Filter & requiredBits) != requiredBits) {
-            continue;
-        }
-
-        if (best == NULL || fileContext->Precedence > bestPrecedence) {
-            best = fileContext;
-            bestPrecedence = fileContext->Precedence;
-        }
-    }
-
-    if (best != NULL) {
-        OibFileContextQueuePush(best, Stroke, sizeof(*Stroke), &becameNonEmpty);
-
-        if (becameNonEmpty && best->UnemptyEvent != NULL) {
-            KeSetEvent(best->UnemptyEvent, IO_NO_INCREMENT, FALSE);
-        }
-
-        *Captured = TRUE;
-    }
-
-    OibSlotUnlockInstances(SlotIndex);
-}
-
 static USHORT
 OibComputeMouseRequiredFilterBits(
     _In_ PMOUSE_INPUT_DATA Stroke
@@ -625,6 +620,92 @@ OibComputeMouseRequiredFilterBits(
     return required;
 }
 
+// True if A sits strictly above B in the precedence hook chain (see "Precedence hook chain"
+// in ioctl.h): either A's Precedence is greater, or — on a tie — A attached earlier than B.
+// Always false when A and B are the same instance.
+static BOOLEAN
+OibIsHigherPriority(
+    _In_ POIB_FILE_CONTEXT A,
+    _In_ POIB_FILE_CONTEXT B
+    )
+{
+    if (A->Precedence != B->Precedence) {
+        return A->Precedence > B->Precedence;
+    }
+    return A->AttachSequence < B->AttachSequence;
+}
+
+// Finds the highest-chain-position open instance on SlotIndex whose Filter matches
+// RequiredFilterBits, considering only instances strictly below After's chain position (or
+// every instance, if After is NULL — a fresh stroke nobody has claimed yet). Must be called
+// with SlotIndex's instances lock held (slots.h).
+static POIB_FILE_CONTEXT
+OibFindNextChainRecipient(
+    _In_ ULONG SlotIndex,
+    _In_opt_ POIB_FILE_CONTEXT After,
+    _In_ USHORT RequiredFilterBits
+    )
+{
+    PLIST_ENTRY head = OibSlotGetInstancesListHead(SlotIndex);
+    PLIST_ENTRY entry;
+    POIB_FILE_CONTEXT best = NULL;
+
+    for (entry = head->Flink; entry != head; entry = entry->Flink) {
+        POIB_FILE_CONTEXT candidate = CONTAINING_RECORD(entry, OIB_FILE_CONTEXT, SlotLinkage);
+
+        if (candidate->Filter == 0) {
+            continue; // FILTER_*_NONE: never capture.
+        }
+
+        if ((candidate->Filter & RequiredFilterBits) != RequiredFilterBits) {
+            continue;
+        }
+
+        if (After != NULL && !OibIsHigherPriority(After, candidate)) {
+            continue; // not strictly below After's position in the chain.
+        }
+
+        if (best == NULL || OibIsHigherPriority(candidate, best)) {
+            best = candidate;
+        }
+    }
+
+    return best;
+}
+
+VOID
+OibDispatchKeyboardStroke(
+    _In_ ULONG SlotIndex,
+    _In_ PKEYBOARD_INPUT_DATA Stroke,
+    _Out_ PBOOLEAN Captured
+    )
+{
+    USHORT requiredBits;
+    POIB_FILE_CONTEXT recipient;
+    BOOLEAN becameNonEmpty;
+
+    *Captured = FALSE;
+    requiredBits = OibComputeKeyboardRequiredFilterBits(Stroke->Flags);
+
+    OibSlotLockInstances(SlotIndex);
+
+    // Entering the chain at the top: nobody has seen this (fresh, hardware-originated) stroke
+    // yet — see "Precedence hook chain" in ioctl.h.
+    recipient = OibFindNextChainRecipient(SlotIndex, NULL, requiredBits);
+
+    if (recipient != NULL) {
+        OibFileContextQueuePush(recipient, Stroke, sizeof(*Stroke), &becameNonEmpty);
+
+        if (becameNonEmpty && recipient->UnemptyEvent != NULL) {
+            KeSetEvent(recipient->UnemptyEvent, IO_NO_INCREMENT, FALSE);
+        }
+
+        *Captured = TRUE;
+    }
+
+    OibSlotUnlockInstances(SlotIndex);
+}
+
 VOID
 OibDispatchMouseStroke(
     _In_ ULONG SlotIndex,
@@ -633,10 +714,7 @@ OibDispatchMouseStroke(
     )
 {
     USHORT requiredBits;
-    PLIST_ENTRY head;
-    PLIST_ENTRY entry;
-    POIB_FILE_CONTEXT best = NULL;
-    LONG bestPrecedence = 0;
+    POIB_FILE_CONTEXT recipient;
     BOOLEAN becameNonEmpty;
 
     *Captured = FALSE;
@@ -649,31 +727,13 @@ OibDispatchMouseStroke(
 
     OibSlotLockInstances(SlotIndex);
 
-    // See OibDispatchKeyboardStroke for the M5 highest-precedence-wins policy this
-    // implements.
-    head = OibSlotGetInstancesListHead(SlotIndex);
-    for (entry = head->Flink; entry != head; entry = entry->Flink) {
-        POIB_FILE_CONTEXT fileContext = CONTAINING_RECORD(entry, OIB_FILE_CONTEXT, SlotLinkage);
+    recipient = OibFindNextChainRecipient(SlotIndex, NULL, requiredBits);
 
-        if (fileContext->Filter == 0) {
-            continue;
-        }
+    if (recipient != NULL) {
+        OibFileContextQueuePush(recipient, Stroke, sizeof(*Stroke), &becameNonEmpty);
 
-        if ((fileContext->Filter & requiredBits) != requiredBits) {
-            continue;
-        }
-
-        if (best == NULL || fileContext->Precedence > bestPrecedence) {
-            best = fileContext;
-            bestPrecedence = fileContext->Precedence;
-        }
-    }
-
-    if (best != NULL) {
-        OibFileContextQueuePush(best, Stroke, sizeof(*Stroke), &becameNonEmpty);
-
-        if (becameNonEmpty && best->UnemptyEvent != NULL) {
-            KeSetEvent(best->UnemptyEvent, IO_NO_INCREMENT, FALSE);
+        if (becameNonEmpty && recipient->UnemptyEvent != NULL) {
+            KeSetEvent(recipient->UnemptyEvent, IO_NO_INCREMENT, FALSE);
         }
 
         *Captured = TRUE;

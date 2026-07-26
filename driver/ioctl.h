@@ -56,10 +56,14 @@ typedef struct _OIB_FILE_CONTEXT
 
     USHORT Filter;     // InterceptionFilter bitmask; 0 (NONE) = capture nothing (the default).
 
-    LONG Precedence;   // InterceptionPrecedence; 0 by default. Higher values win ties among
-                        // multiple matching open instances — see OibDispatch{Keyboard,Mouse}
-                        // Stroke and the M5 caveat on ioctl.h's IOCTL_SET/GET_PRECEDENCE
-                        // declarations below.
+    LONG Precedence;   // InterceptionPrecedence; 0 by default. Higher values sit closer to the
+                        // top of the per-slot hook chain — see "Precedence hook chain" below.
+
+    LONG AttachSequence; // Assigned from a monotonically increasing counter when this handle is
+                          // opened (OibCtlEvtFileCreate). Breaks ties between instances with
+                          // equal Precedence: whichever attached first sits higher in the chain,
+                          // matching the real driver's documented default-precedence-0 behavior
+                          // (see docs/CLEAN_ROOM.md's 2026-07-26 entry).
 
     PKEVENT UnemptyEvent; // referenced via IOCTL_SET_EVENT; NULL if never set.
 
@@ -95,42 +99,59 @@ VOID OibCtlHandleSetEvent(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject
 // IOCTL_READ (M3): non-blocking drain of whatever is currently queued for this file object.
 VOID OibCtlHandleRead(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject, _In_ size_t OutputBufferLength);
 
-// Called from kbdfilter.c's/mousefilter.c's service callback for each individual stroke
-// record reported by the port/HID driver below (one call per record, even when the port
-// driver batches several into one callback invocation — see kbdfilter.c/mousefilter.c for
-// why). Walks SlotIndex's list of open instances (slots.h) and, among every one whose active
-// filter bitmask matches this stroke, picks the single instance with the highest Precedence
-// (ties broken by list/attachment order) to queue a copy into and signal the "unempty" event
-// of if this transitions its queue from empty to non-empty, then sets *Captured = TRUE. If no
-// open instance's filter matches, sets *Captured = FALSE (the stroke should be forwarded to
-// the real ClassService unmodified).
+// --- Precedence hook chain (M5) ---
 //
-// Both the exact bit-matching rule (see ioctl.c) and this "single highest-precedence winner"
-// dispatch policy are best-effort readings of the public library source and header, not
-// something confirmed against the real driver's behavior — see the M5 caveat on
-// IOCTL_SET_PRECEDENCE below and docs/PROTOCOL.md. If black-box testing later shows the real
-// driver instead fans a stroke out to every matching context independently, or serializes a
-// hand-off chain where a higher-precedence context must explicitly release before a lower one
-// sees it, only this function's body needs to change — the queue/event mechanics and the
-// OIB_FILE_CONTEXT list itself are already general enough to support either policy.
+// Per docs/CLEAN_ROOM.md's 2026-07-26 entry (the Interception author's own public explanation
+// of this mechanism, found via Wayback Machine — this is the original implementation's
+// documented design, not a guess): the open instances on a slot form an ordered chain, highest
+// Precedence first (ties broken by AttachSequence — whoever attached first sits higher). A
+// stroke is offered to instances strictly one at a time, starting from the top of the chain:
+// the first instance (in chain order) whose filter matches captures it — nobody lower in the
+// chain, and never the real hardware/OS, sees it *yet*. Only when that instance later calls
+// IOCTL_WRITE to release (or replace, or inject alongside) it does the stroke continue past
+// that instance's position, being offered again starting from the next instance below it —
+// and so on, until either some instance captures it again or it falls off the bottom of the
+// chain, at which point it finally reaches the real ClassService (actual OS delivery).
+// Injecting brand-new synthetic input via IOCTL_WRITE follows the exact same rule: it only
+// ever travels downward from the calling instance's own chain position, same as
+// SetWindowsHookEx's CallNextHookEx convention — a hook cannot reach back up to hooks above
+// itself.
+//
+// OibFindNextChainRecipient (ioctl.c) implements "who's next in the chain, strictly below a
+// given position" and is shared by both entry points below.
+
+// Called from kbdfilter.c's/mousefilter.c's service callback for each individual stroke
+// record freshly reported by the port/HID driver below (one call per record, even when the
+// port driver batches several into one callback invocation — see kbdfilter.c/mousefilter.c
+// for why). This is a stroke entering the chain at the top (no instance has seen it yet).
+// Finds the highest-chain-position open instance whose active filter bitmask matches, queues
+// a copy into it and signals its "unempty" event if this transitions its queue from empty to
+// non-empty, then sets *Captured = TRUE. If no open instance's filter matches, sets
+// *Captured = FALSE (the stroke should be forwarded to the real ClassService unmodified —
+// nothing in the chain wanted it).
+//
+// The exact bit-matching rule (see OibComputeKeyboardRequiredFilterBits/
+// OibComputeMouseRequiredFilterBits in ioctl.c) is still a best-effort reading of the public
+// library header, not something confirmed against the real driver — unlike the chain
+// ordering above, that part remains a candidate for M5 black-box validation
+// (tests/precedence_blackbox/, docs/PROTOCOL.md).
 VOID OibDispatchKeyboardStroke(_In_ ULONG SlotIndex, _In_ PKEYBOARD_INPUT_DATA Stroke, _Out_ PBOOLEAN Captured);
 VOID OibDispatchMouseStroke(_In_ ULONG SlotIndex, _In_ PMOUSE_INPUT_DATA Stroke, _Out_ PBOOLEAN Captured);
 
-// IOCTL_WRITE (M4): resolves the control device's assigned slot (if any) to its filter FDO
-// and calls the saved UpperConnectData.ClassService directly with the caller-supplied array
-// of raw stroke records — injecting synthetic input and releasing a previously captured
-// stroke (from IOCTL_READ) are the same operation as far as the wire protocol and this
-// handler are concerned; see docs/PROTOCOL.md. An empty slot (no physical device currently
-// assigned) succeeds with zero bytes written rather than failing, matching
-// OibCtlHandleGetHardwareId's precedent.
-VOID OibCtlHandleWrite(_In_ WDFREQUEST Request, _In_ WDFDEVICE ControlDevice, _In_ size_t InputBufferLength);
+// IOCTL_WRITE (M4/M5): FileObject is the instance releasing/injecting — the stroke re-enters
+// the chain starting strictly below FileObject's own chain position (see "Precedence hook
+// chain" above), record by record. For each record: if some lower instance's filter matches,
+// it's queued there and stays in the chain (not delivered yet); otherwise this resolves the
+// slot's assigned filter FDO (if any) and calls the saved UpperConnectData.ClassService
+// directly — final delivery to the real hardware input stream. Injecting synthetic input and
+// releasing a previously captured stroke (from IOCTL_READ) are the same operation as far as
+// the wire protocol and this handler are concerned; see docs/PROTOCOL.md. An empty slot (no
+// physical device currently assigned) still walks the chain normally; only the final
+// real-hardware delivery step is skipped, and the call still succeeds — matching
+// OibCtlHandleGetHardwareId's precedent for empty slots.
+VOID OibCtlHandleWrite(_In_ WDFREQUEST Request, _In_ WDFDEVICE ControlDevice, _In_ WDFFILEOBJECT FileObject, _In_ size_t InputBufferLength);
 
 // IOCTL_SET_PRECEDENCE / IOCTL_GET_PRECEDENCE (M5): per-file-object InterceptionPrecedence
-// (plain int/LONG). Implemented now on a best-effort "highest precedence among matching
-// instances wins" policy (see OibDispatchKeyboardStroke/OibDispatchMouseStroke above) so the
-// unmodified upstream library's interception_set_precedence/interception_get_precedence work
-// end-to-end; the exact multi-context ordering semantics this should implement are still
-// pending black-box validation against the real driver (docs/PROTOCOL.md), and may need this
-// policy adjusted once that's done.
+// (plain int/LONG), consulted by the chain lookups above.
 VOID OibCtlHandleSetPrecedence(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject);
 VOID OibCtlHandleGetPrecedence(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject, _In_ size_t OutputBufferLength);

@@ -28,7 +28,7 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 | M2 | スロット管理・`IOCTL_GET_HARDWARE_ID` | ✅ 完了 |
 | M3 | フィルタビットマスク・捕捉キュー・`IOCTL_READ`/`IOCTL_SET_EVENT` | ✅ 完了 |
 | M4 | `IOCTL_WRITE`（合成入力の注入／捕捉ストロークの解放） | ✅ 完了 |
-| M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE` | ✅ 実装済み（実物ドライバとの挙動比較は未検証。[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
+| M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 実装済み。配送モデルは作者本人の技術記事で確認済み（[docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md)）だが、フィルタのビット照合規則は引き続き実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 | M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了 |
 | M7 | コード署名 | 🔶 EV署名は完了。WHQL署名は申請待ち |
 | M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中 |
