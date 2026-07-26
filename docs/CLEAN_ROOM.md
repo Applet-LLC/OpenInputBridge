@@ -47,6 +47,38 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 
 **この時点で、Interceptionのプロプライエタリなドライババイナリ（.sys）へのアクセス・解析は一切行っていない。**
 
+### 2026-07-26: 作者本人による技術記事（precedenceの仕様確認）
+
+ユーザーの指摘により、Interception作者 Francisco Lopes 氏自身の公式サイト（Wayback Machineアーカイブ経由。
+サイト自体は現存しないため、archive.orgの保存分を参照）を確認した。
+
+- `https://web.archive.org/web/20240209172129/http://www.oblita.com/interception` — Interceptionの
+  公式解説ページ（作者本人執筆）。API使用例（フィルタ、precedence、hardware_id取得等）、
+  `install-interception`ツールの存在、バイナリ配布はGitHub Releases
+  （`https://github.com/oblitum/Interception/releases/latest`）経由であることを確認。
+  このページ自体に商用/非商用のライセンス条件の詳細記載はなかった。
+- `https://web.archive.org/web/20181029034754/https://sites.google.com/a/oblita.com/yorick/hooking-part1` —
+  上記公式ページが「precedenceの詳しい説明はこちら」として直接リンクしている記事（"Hooking (Part 1)"）。
+  Interceptionの前身にあたる "Kernel Hotkey" ライブラリ（同一作者、同じコンセプト：キーボード0〜9・
+  マウス0〜9のインデックス、Filter/Wait/Read/Writeのモデル）を題材に、precedenceの動作を実例付きで解説している。
+
+**重要な確認事項（precedenceの仕様）**: この記事によれば、precedenceは「一致した全インスタンスに独立コピーを配送する」
+方式ではなく、**優先順位が高い順に直列に処理を引き渡すチェーン（フックチェーン）方式**である。
+
+- 複数プロセスが同一デバイスに同時にアタッチしている場合、precedenceが最も高いプロセスが最初にストロークを受け取る
+- そのプロセスが `interception_send`（記事内では `Write`）で送り返した内容が、次にprecedenceが低いプロセスへの
+  入力として渡される（＝OSに直接届くのではなく、次のフックへ引き継がれる）
+- 最終的に一番precedenceが低いプロセスの送出結果が、実際にOS/ハードウェアに反映される
+- 明示的にprecedenceを設定しない場合はデフォルト値0で、その場合は**アタッチした順序**が優劣を決める
+  （先にアタッチした方が高precedence相当として先に処理する）
+- 記事の実例: x→yに変換するアプリを先に起動し、y→zに変換するアプリを後から起動すると、xはx→y→zと
+  連鎖的に変換される（逆順に起動すると、xはyへの変換の後にz変換アプリを通らないため、単純にyのままになる）
+
+**現在の実装（M5, `driver/ioctl.c` の `OibDispatchKeyboardStroke`/`OibDispatchMouseStroke`）との差分**:
+現状は「フィルタが一致した中でprecedence最大の1つだけが捕捉し、他には一切見せない」という単純化した方式であり、
+このフックチェーンモデル（各フックの送出結果が次の低precedenceフックへの入力になる）とは異なる。
+`docs/PROTOCOL.md` の当該注記とあわせて、M5実装をこのチェーンモデルに合わせて修正するかどうかはユーザーと要相談。
+
 ### 実機ブラックボックステストについて（予定・M5フェーズ）
 
 プロジェクト保有者は実物Interceptionドライバ（LGPLライセンス版バイナリ）を別途所持しており、
