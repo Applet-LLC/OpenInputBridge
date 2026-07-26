@@ -17,7 +17,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
      デバイス名・データ構造）を実装レベルで明示している
 2. Microsoft公式のWDK/KMDFドキュメント（Microsoft Learn）および `microsoft/Windows-driver-samples`
    リポジトリ内の公開サンプルドライバ（`input/kbfiltr`, `input/moufiltr` 等）
-3. 実物の（商用ライセンス版）Interceptionドライバに対する、**ブラックボックスなI/Oレベルの動作観察**
+3. 実物の（LGPLライセンス版）Interceptionドライバに対する、**ブラックボックスなI/Oレベルの動作観察**
    （`DeviceIoControl` の入出力、レジストリ変更内容、インストール後の動作結果など、外部から観測可能な
    挙動のみ。逆アセンブル・逆コンパイル・バイナリの静的/動的解析は含まない）
 
