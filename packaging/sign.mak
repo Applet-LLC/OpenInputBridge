@@ -12,9 +12,16 @@
 # it arrives here unsigned — no leftover WDK test signature to worry about, unlike Debug builds.
 #
 # Usage (from an EWDK/VS "amd64" build environment, so nmake and signtool are on PATH):
-#   nmake -f packaging\sign.mak            (sign only)
-#   nmake -f packaging\sign.mak stage      (sign, then stage into Signed\)
-#   nmake -f packaging\sign.mak package    (stage, then zip Signed\ into dist\)
+#   nmake -f packaging\sign.mak            (sign, then stage into Signed\)
+#   nmake -f packaging\sign.mak sign       (sign only)
+#   nmake -f packaging\sign.mak stage      (stage only, no signing)
+#   nmake -f packaging\sign.mak package    (zip whatever's currently in Signed\ into dist\)
+#
+# "all" and "package" are deliberately separate steps, not "package: all": once this driver
+# has gone through HLK/WHQL, there's nothing left for "all" (EV-signing our own Release build)
+# to do — the files that belong in Signed\ instead come back from that submission process and
+# get dropped in there directly. "package" only ever looks at what's already in Signed\, so it
+# stays the same single step regardless of how those files got there.
 #
 # Prerequisite: both projects must already be built in Release|x64 (see README.md's ビルド方法).
 # driver/OpenInputBridge.vcxproj's Inf2Cat step (re-enabled once OpenInputBridge.inx became a
@@ -52,7 +59,7 @@ TARGET_BIN	= ..\installer\x64\Release\OpenInputBridgeSetup.exe
 
 SIGNED_DIR	= Signed
 
-SIGNED_DRIVERS_DIR	= $(SIGNED_DIR)\drivers
+SIGNED_DRIVERS_DIR	= $(SIGNED_DIR)\Drivers
 
 SIGNED_SYMBOLS_DIR	= $(SIGNED_DIR)\Symbol
 
@@ -66,11 +73,15 @@ SIGNTOOL	= "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool
 
 # rules		###############################################################
 
+# "all" = sign, then immediately stage — the full local-EV-signing pipeline in one step, so
+# that once WHQL signing replaces it, only "package" (below) remains in the regular workflow.
+all: sign stage
+
 # .cat is signed alongside .sys/.exe: a catalog is itself an Authenticode-signable file, and
 # an unsigned catalog is no better than no catalog at all for code-integrity purposes. .inf
 # and .pdb are not signed (an INF is plain text with no Authenticode container, and a PDB is a
 # debug-symbol file with no bearing on what actually loads/runs).
-all:
+sign:
 		@echo [sign] signing start
 		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN) $(TARGET_SYS) $(TARGET_CAT)
 		@echo [sign] signing done
@@ -81,10 +92,7 @@ verify:
 		$(SIGNTOOL) verify /v /pa $(TARGET_CAT)
 
 # Copies the already-signed binaries (plus the unsigned .inf/.pdb) into a clean staging
-# folder, laid out the way installer/install.cpp and an HLK submission both expect. Deliberately
-# does NOT depend on "all": re-running "all" re-signs (Authenticode just stacks another
-# signature on top rather than erroring, but there's no reason to do that every time you
-# re-stage) — run "all" once, then "stage"/"package" as often as needed.
+# folder, laid out the way installer/install.cpp and an HLK submission both expect.
 #
 # Destinations end in "\." rather than a bare "\": a trailing backslash as the last character
 # of an nmake command line is parsed as a line-continuation marker (merging the next command
@@ -98,10 +106,13 @@ stage:
 		copy /y $(TARGET_CAT) $(SIGNED_DRIVERS_DIR)\.
 		copy /y $(TARGET_SYS) $(SIGNED_DRIVERS_DIR)\.
 		copy /y $(TARGET_PDB) $(SIGNED_SYMBOLS_DIR)\.
+		@echo [stage] copied into $(SIGNED_DIR)
 
 # Zips Signed\ as-is into dist\OpenInputBridge.zip. Uses PowerShell's Compress-Archive rather
 # than a separate zip tool dependency — available on every supported Windows version.
-package: stage
+# Deliberately does NOT depend on "all"/"stage": once WHQL-signed files are dropped into
+# Signed\ by hand, "package" needs to work standalone from just what's sitting there.
+package:
 		@if not exist $(DIST_DIR) mkdir $(DIST_DIR)
 		powershell -NoProfile -Command "Compress-Archive -Path '$(SIGNED_DIR)\*' -DestinationPath '$(DIST_ZIP)' -Force"
 		@echo [package] created $(DIST_ZIP)
