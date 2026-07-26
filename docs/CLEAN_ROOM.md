@@ -49,7 +49,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 
 ### 実機ブラックボックステストについて（予定・M5フェーズ）
 
-プロジェクト保有者は実物Interceptionドライバ（商用ライセンス版バイナリ）を別途所持しており、
+プロジェクト保有者は実物Interceptionドライバ（LGPLライセンス版バイナリ）を別途所持しており、
 `IOCTL_SET_PRECEDENCE` / `IOCTL_GET_PRECEDENCE` の複数プロセス間での挙動検証のため、
 `tests/precedence_blackbox/` にてブラックボックスI/O観察テストを実施予定。この際も対象は
 外部から観測可能なI/O動作（DeviceIoControl呼び出しの結果等）のみとし、バイナリの逆アセンブル等は
