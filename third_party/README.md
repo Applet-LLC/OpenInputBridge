@@ -9,7 +9,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 ## interception/
 
 `interception/` は [oblitum/Interception](https://github.com/oblitum/Interception) の
-`library/` を **無改変で** vendor した git submodule です（`interception.c` / `interception.h` /
+`library/` を **無改変で** 取り込んだ git submodule です（`interception.c` / `interception.h` /
 ビルドスクリプト一式）。
 
 - **SPDX-License-Identifier: LGPL-2.1-or-later**（oblitum/Interceptionライブラリのライセンス表記に準拠。

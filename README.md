@@ -41,13 +41,13 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ソースコードは誰でも自由に読む・改変する・自分でビルドして使うことができます。一方で、Windowsカーネルドライバとして一般利用者が手軽に・安全に導入できる**EV証明書によるコード署名済み、将来的にはWHQL認定済みの公式ビルド**は、証明書取得・認定・継続的なサポートのコストを賄うため有償で提供します。
 
-なお `third_party/interception/` にvendorしているoblitum/Interceptionのユーザーモードライブラリ（`interception.c` / `interception.h`）は、無改変のまま元のLGPLライセンスを維持しています。
+なお `third_party/interception/` に取り込んでいるoblitum/Interceptionのユーザーモードライブラリ（`interception.c` / `interception.h`）は、無改変のまま元のLGPLライセンスを維持しています。
 
 ## ビルド方法
 
 ### リポジトリの取得
 
-`third_party/interception` は [oblitum/Interception](https://github.com/oblitum/Interception) の `library/` を無改変でvendorしたgit submoduleです。**submoduleごと取得してください。**
+`third_party/interception` は [oblitum/Interception](https://github.com/oblitum/Interception) の `library/` を無改変で取り込んだgit submoduleです。**submoduleごと取得してください。**
 
 ```sh
 git clone --recurse-submodules https://github.com/Applet-LLC/OpenInputBridge.git

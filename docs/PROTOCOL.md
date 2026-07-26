@@ -9,7 +9,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 このドキュメントは、OpenInputBridgeドライバが実装する、ユーザーモードとの通信プロトコルの仕様です。
 
 **情報源について**: 以下の仕様は、`third_party/interception/library/interception.c` / `interception.h`
-(LGPL、[oblitum/Interception](https://github.com/oblitum/Interception) より無改変でvendor)
+(LGPL、[oblitum/Interception](https://github.com/oblitum/Interception) より無改変で取り込み)
 を読み解いて独自に再記述したものです。プロプライエタリなカーネルドライバ（.sys）のソースコードやバイナリの
 逆アセンブル結果は一切参照していません。詳細は [CLEAN_ROOM.md](CLEAN_ROOM.md) を参照してください。
 
@@ -106,7 +106,7 @@ typedef struct _MOUSE_INPUT_DATA
 - **`IOCTL_GET_HARDWARE_ID`**: 出力バッファに、下位デバイス(PDO)のハードウェアIDプロパティ文字列を
   呼び出し元バッファサイズに収まる範囲で返す。
 
-## 参照実装ファイル（vendored, 無改変）
+## 参照実装ファイル（取り込み済み、無改変）
 
 - `third_party/interception/library/interception.c`
 - `third_party/interception/library/interception.h`
