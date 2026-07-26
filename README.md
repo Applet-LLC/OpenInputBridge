@@ -19,7 +19,22 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ## ステータス
 
-🚧 開発初期段階です。詳細なマイルストーンは [Issues](../../issues) / [Projects](../../projects) を参照してください。
+コア機能（ドライバ本体・インストーラ・コード署名）は実装済みです。他ドキュメント中の「M0」「M5」等の表記は、以下のマイルストーンを指しています。
+
+| マイルストーン | 内容 | 状態 |
+|---|---|---|
+| M0 | ドライバ骨格（常時20個のコントロールデバイスを作成） | ✅ 完了 |
+| M1 | キーボード/マウスへのフィルタアタッチ・素通し | ✅ 完了 |
+| M2 | スロット管理・`IOCTL_GET_HARDWARE_ID` | ✅ 完了 |
+| M3 | フィルタビットマスク・捕捉キュー・`IOCTL_READ`/`IOCTL_SET_EVENT` | ✅ 完了 |
+| M4 | `IOCTL_WRITE`（合成入力の注入／捕捉ストロークの解放） | ✅ 完了 |
+| M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE` | ✅ 実装済み（実物ドライバとの挙動比較は未検証。[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
+| M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了 |
+| M7 | コード署名 | 🔶 EV署名は完了。WHQL署名は申請待ち |
+| M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中 |
+| M9 | デバイス数上限（現行20台）の撤廃（将来対応） | 📋 未着手 |
+
+詳細なタスク管理は [Issues](../../issues) / [Projects](../../projects) を参照してください。
 
 ## アーキテクチャ概要
 
@@ -37,9 +52,9 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 |---|---|
 | ソースコード一式（本リポジトリ） | [MIT License](LICENSE) ・無償 |
 | セルフビルド版バイナリ（テスト署名モードで動作） | 無償・自己責任でビルド |
-| 公式のEV署名済み／WHQL認定済みビルド | **有償**（詳細は近日公開） |
+| WHQL署名付きドライバ | **有償**（詳細は近日公開） |
 
-ソースコードは誰でも自由に読む・改変する・自分でビルドして使うことができます。一方で、Windowsカーネルドライバとして一般利用者が手軽に・安全に導入できる**EV証明書によるコード署名済み、将来的にはWHQL認定済みの公式ビルド**は、証明書取得・認定・継続的なサポートのコストを賄うため有償で提供します。
+ソースコードは誰でも自由に読む・改変する・自分でビルドして使うことができます。一方で、Windowsカーネルドライバとして一般利用者が手軽に・安全に導入できる**WHQL署名をつけたデバイスドライバ**は、証明書取得・認定・継続的なサポートのコストを賄うため有償で提供します。
 
 なお `third_party/interception/` に取り込んでいるoblitum/Interceptionのユーザーモードライブラリ（`interception.c` / `interception.h`）は、無改変のまま元のLGPLライセンスを維持しています。
 
@@ -63,10 +78,10 @@ git submodule update --init --recursive
 
 `driver/` はKMDF（Kernel-Mode Driver Framework）ベースのWindowsカーネルドライバです。ビルドには以下が必要です。
 
-- Visual Studio 2022
-- Windows Driver Kit (WDK)。EWDK（Enterprise WDK、ISOイメージをマウントして使うスタンドアロン版）を推奨します。ローカルインストールのWindows SDKだけでは、ドライバのLink/Inf2Catビルドカスタマイズが解決されず、ビルドが「成功」と表示されつつ実際には `.sys`/`.inf`/`.cat` が生成されない場合があります
+- Visual Studio 2022以降
+- Windows Driver Kit (WDK)あるいはEWDK（Enterprise WDK、ISOイメージをマウントして使うスタンドアロン版）が必要です。
 
-詳細な手順は今後追記します（現時点ではドライバの骨格実装段階です。ロードマップは [プロジェクトの計画](#ステータス) を参照してください）。
+詳細な手順は今後追記します。署名・パッケージング手順は `packaging/sign.mak` を参照してください。ロードマップは [ステータス](#ステータス) を参照してください。
 
 ## 貢献
 
