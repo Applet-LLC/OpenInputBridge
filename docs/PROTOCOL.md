@@ -4,7 +4,7 @@ SPDX-License-Identifier: MIT
 Licensed under the MIT License. See LICENSE file in the project root for full license text.
 -->
 
-# ワイヤプロトコル仕様
+# プロトコル仕様
 
 このドキュメントは、OpenInputBridgeドライバが実装する、ユーザーモードとの通信プロトコルの仕様です。
 
@@ -26,7 +26,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 - デバイスパス: `\\.\interceptionNN`（`NN` は2桁ゼロ埋め、`00`〜`19`。インデックス `i` → デバイス名の `NN` は `i` そのもの）
 - `CreateFileA` は `GENERIC_READ` のみで `OPEN_EXISTING` オープンされる（共有モード0）
 
-**互換上の重要な制約**: upstreamのユーザーモードライブラリ `interception_create_context()` は、20個の
+**互換上の重要な制約**: oblitum/Interceptionのユーザーモードライブラリ `interception_create_context()` は、20個の
 デバイスすべてのオープンに成功しないと `NULL` を返す。したがって本ドライバは、**物理的なキーボード/マウスの
 接続台数に関わらず、常に20個すべてのコントロールデバイスを公開し続けなければならない**。
 
@@ -47,7 +47,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 
 ## データ構造（標準NT DDK構造体）
 
-ワイヤ上でやり取りされる構造体は、Interception独自形式ではなく、標準のNT DDK構造体そのものである。
+プロトコル上でやり取りされる構造体は、Interception独自形式ではなく、標準のNT DDK構造体そのものである。
 Interception独自の `InterceptionKeyStroke` / `InterceptionMouseStroke` への変換は、ユーザーモードライブラリ側
 （`interception.c`）でのみ行われている。したがってドライバは以下の標準構造体のみを扱えばよい。
 

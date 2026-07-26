@@ -31,7 +31,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 
 ### 2026-07-25: 初期調査
 
-以下の公開URLを参照し、ワイヤプロトコル仕様（`docs/PROTOCOL.md`）およびアーキテクチャ設計の根拠とした。
+以下の公開URLを参照し、プロトコル仕様（`docs/PROTOCOL.md`）およびアーキテクチャ設計の根拠とした。
 
 - `https://github.com/oblitum/Interception` — ライセンス体系（LGPL + 商用ライセンス2種）、リポジトリ構成の確認
 - `https://raw.githubusercontent.com/oblitum/Interception/master/library/interception.h` — 公開API・データ構造の確認

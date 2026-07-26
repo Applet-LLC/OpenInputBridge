@@ -1,12 +1,12 @@
 # OpenInputBridge
 
-**Windows用キーボード/マウス入力インターセプトドライバ。[Interception](https://github.com/oblitum/Interception) が公開しているユーザーモードAPI（LGPL）とワイヤ互換のカーネルドライバを、クリーンルームで独自実装するプロジェクトです。**
+**Windows用キーボード/マウス入力インターセプトドライバ。[Interception](https://github.com/oblitum/Interception) が公開しているユーザーモードAPI（LGPL）とプロトコル互換のカーネルドライバを、クリーンルームで独自実装するプロジェクトです。**
 
 > ⚠️ 本プロジェクトは [oblitum/Interception](https://github.com/oblitum/Interception) およびその作者 Francisco Lopes 氏とは**無関係の非公式プロジェクト**です。"Interception" の名称・商標は使用していません。
 
 ## これは何か
 
-Interception は、キーボード/マウスの入力をカーネルレベルで捕捉・改変・再注入できる著名なWindows用ドライバです。ユーザーモードのC APIライブラリ（`interception.h` / `interception.c`）はLGPLで公開されていますが、実際に入力をフックするカーネルドライバ本体は、商用ライセンスを購入してもソースコードが非公開です。
+Interception は、キーボード/マウスの入力をカーネルレベルで捕捉・改変・再注入できる著名なWindows用ドライバです。ユーザーモードのC APIライブラリ（`interception.h` / `interception.c`）はLGPLで公開されていますが、実際に入力をフックするカーネルドライバ本体は、商用ライセンスを購入できればソースコードを入手可能ですが、それは公開できず制限が多いものでした。
 
 OpenInputBridge は、この**カーネルドライバ部分**を、
 
@@ -26,8 +26,8 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 - KMDF（Kernel-Mode Driver Framework）ベースのフィルタドライバ
 - キーボード/マウスのデバイスクラススタックに上位フィルタとしてアタッチし、`IOCTL_INTERNAL_*_CONNECT` によるクラスサービスコールバックの差し替えで入力を捕捉/再注入
 - 物理デバイスの有無によらず常時20個（キーボード×10、マウス×10）のコントロールデバイスを公開し、上位のユーザーモードライブラリとの互換性を維持
-- 詳細なワイヤプロトコル仕様は [`docs/PROTOCOL.md`](docs/PROTOCOL.md) を参照
-- 互換性のため当面はupstream仕様どおりキーボード10台・マウス10台（計20デバイス）が上限ですが、将来的には既存クライアントとの後方互換を保ったまま、この上限を撤廃する拡張を計画しています
+- 詳細なプロトコル仕様は [`docs/PROTOCOL.md`](docs/PROTOCOL.md) を参照
+- 互換性のため当面はoblitum/Interceptionライブラリの仕様どおりキーボード10台・マウス10台（計20デバイス）が上限ですが、将来的には既存クライアントとの後方互換を保ったまま、この上限を撤廃する拡張を計画しています
 
 ## ライセンスと配布方針
 
@@ -41,13 +41,13 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ソースコードは誰でも自由に読む・改変する・自分でビルドして使うことができます。一方で、Windowsカーネルドライバとして一般利用者が手軽に・安全に導入できる**EV証明書によるコード署名済み、将来的にはWHQL認定済みの公式ビルド**は、証明書取得・認定・継続的なサポートのコストを賄うため有償で提供します。
 
-なお `third_party/interception/` にvendorしているupstreamのユーザーモードライブラリ（`interception.c` / `interception.h`）は、無改変のまま元のLGPLライセンスを維持しています。
+なお `third_party/interception/` にvendorしているoblitum/Interceptionのユーザーモードライブラリ（`interception.c` / `interception.h`）は、無改変のまま元のLGPLライセンスを維持しています。
 
 ## ビルド方法
 
 ### リポジトリの取得
 
-`third_party/interception` は upstream の [oblitum/Interception](https://github.com/oblitum/Interception) `library/` を無改変でvendorしたgit submoduleです。**submoduleごと取得してください。**
+`third_party/interception` は [oblitum/Interception](https://github.com/oblitum/Interception) の `library/` を無改変でvendorしたgit submoduleです。**submoduleごと取得してください。**
 
 ```sh
 git clone --recurse-submodules https://github.com/Applet-LLC/OpenInputBridge.git
@@ -76,7 +76,7 @@ Issue / Pull Request 歓迎です。カーネルドライバというセキュ�
 
 本プロジェクトは以下のみを参照して実装しています。
 
-- Interception のLGPL公開ライブラリソースコード（ワイヤプロトコルの一次情報源）
+- Interception のLGPL公開ライブラリソースコード（プロトコルの一次情報源）
 - Microsoft公式のWDK/KMDFドキュメントおよび公開サンプルドライバ
 - 実物ドライバに対するブラックボックスなI/O挙動観察（逆アセンブル・逆コンパイルは一切行わない）
 
@@ -84,4 +84,4 @@ Issue / Pull Request 歓迎です。カーネルドライバというセキュ�
 
 ## License
 
-自作部分は [MIT License](LICENSE) です。`third_party/interception/` 配下は upstream の LGPL に従います。
+自作部分は [MIT License](LICENSE) です。`third_party/interception/` 配下は oblitum/Interceptionライブラリ の LGPL に従います。
