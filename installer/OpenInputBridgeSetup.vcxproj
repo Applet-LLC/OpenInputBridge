@@ -58,10 +58,20 @@ Plain Win32 console application (not a driver project) — builds OpenInputBridg
       <!-- Source files are UTF-8 (no BOM) — see driver/OpenInputBridge.vcxproj's equivalent
            note for why this matters under a non-UTF-8 system code page. -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <!-- Static CRT: this exe is handed to end users standalone (unzipped next to the driver
+           package), and requiring a separately-installed VC++ Redistributable just to run an
+           installer is an avoidable extra step for them. -->
+      <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <AdditionalDependencies>advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- Installing/removing a service and editing HKLM\SYSTEM\...\Class\{GUID}\UpperFilters
+           both require elevation; fail fast via the UAC prompt instead of failing partway
+           through with ERROR_ACCESS_DENIED (see common.cpp's IsRunningElevated check, which
+           still runs as defense in depth if this manifest is ever bypassed). -->
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

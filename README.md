@@ -6,7 +6,7 @@
 
 ## これは何か
 
-Interception は、キーボード/マウスの入力をカーネルレベルで捕捉・改変・再注入できる著名なWindows用ドライバです。ユーザーモードのC APIライブラリ（`interception.h` / `interception.c`）はLGPLで公開されていますが、実際に入力をフックするカーネルドライバ本体は、商用ライセンスを購入できればソースコードを入手可能ですが、それは公開できず制限が多いものでした。
+まずオリジナル実装である Interception のことから。Interceptionはキーボード/マウスの入力をカーネルレベルで捕捉・改変・再注入できる著名なWindows用ドライバです。ユーザーモードのC APIライブラリ（`interception.h` / `interception.c`）はLGPLで公開されています。しかしながら、実際に入力をフックするカーネルドライバ本体は、商用ライセンスを購入できればソースコードが入手可能となります。しかし、それは改造はできるものの、公開できずクローズドなものでした。
 
 OpenInputBridge は、この**カーネルドライバ部分**を、
 
@@ -57,6 +57,23 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 ソースコードは誰でも自由に読む・改変する・自分でビルドして使うことができます。一方で、Windowsカーネルドライバとして一般利用者が手軽に・安全に導入できる**WHQL署名をつけたデバイスドライバ**は、証明書取得・認定・継続的なサポートのコストを賄うため有償で提供します。
 
 なお `third_party/interception/` に取り込んでいるoblitum/Interceptionのユーザーモードライブラリ（`interception.c` / `interception.h`）は、無改変のまま元のLGPLライセンスを維持しています。
+
+## インストール
+
+配布されたzip（`OpenInputBridge.zip`）を展開すると、`drivers\`（`.inf`/`.cat`/`.sys`）と
+`OpenInputBridgeSetup.exe` が含まれています。
+
+1. `OpenInputBridgeSetup.exe` を実行します（管理者権限が必要なマニフェストが付与されているため、
+   実行すると自動的にUACの昇格プロンプトが表示されます）。
+2. 完了後、**再起動してください。** `UpperFilters`（デバイスクラスへのフィルタ登録）はOS起動時の
+   デバイススタック構築時にのみ反映されるため、再起動なしでは有効になりません。
+3. `sc query OpenInputBridge` で `SERVICE_KERNEL_DRIVER` / `SERVICE_SYSTEM_START` として
+   登録されていることを確認できます。
+
+アンインストールは `OpenInputBridgeSetup.exe /uninstall` を管理者権限で実行し、同様に再起動してください。
+
+`OpenInputBridgeSetup.exe` は静的にCRTをリンクしているため、別途Visual C++
+再頒布可能パッケージをインストールする必要はありません。
 
 ## ビルド方法
 
