@@ -44,7 +44,11 @@ Plain Win32 console application (not a driver project) — builds OpenInputBridg
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
   </ImportGroup>
   <PropertyGroup>
-    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <!-- $(MSBuildProjectDirectory)-relative, not $(SolutionDir)-relative: packaging/sign.mak
+         hardcodes ..\installer\x64\$(Configuration)\ as this project's output location, so it
+         must stay put regardless of whether this project is built standalone or as part of
+         OpenInputBridge.sln (where $(SolutionDir) would otherwise be the repo root instead). -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
     <TargetName>OpenInputBridgeSetup</TargetName>
     <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
     <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>

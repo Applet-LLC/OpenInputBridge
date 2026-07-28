@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Makefile-type project: not compiled code, just wraps sign.mak so "Build Solution" (both from
+the VS IDE and from `msbuild OpenInputBridge.sln`) drives signing/staging/zipping as part of
+the same build, instead of a separate manual nmake step every time. See sign.mak's own header
+comment for what each nmake target actually does; this project only decides WHICH targets run,
+per solution configuration:
+  - Debug:        nothing (mapped with no Build.0 in OpenInputBridge.sln, so it's skipped).
+  - Release:      "all package"  = our own EV signing end to end (pre-WHQL).
+  - ReleaseWHQL:  "whql package" = installer-only signing; driver .inf/.cat/.sys are assumed
+                   already placed in Signed\Drivers\ by hand, from the HLK/WHQL return.
+NMake commands run with this project's own directory as the working directory (packaging\),
+which is exactly what sign.mak's ..\driver\... / ..\installer\... relative paths expect.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="ReleaseWHQL|x64">
+      <Configuration>ReleaseWHQL</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}</ProjectGuid>
+    <Keyword>MakeFileProj</Keyword>
+    <RootNamespace>Packaging</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseWHQL|x64'" Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='ReleaseWHQL|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <NMakeBuildCommandLine>echo Debug: nothing to sign/package.</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>echo Debug: nothing to sign/package.</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>echo Debug: nothing to clean.</NMakeCleanCommandLine>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <NMakeBuildCommandLine>nmake /nologo -f sign.mak all package</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>nmake /nologo -f sign.mak all package</NMakeReBuildCommandLine>
+    <!-- Wipes Signed\ too: in this configuration everything in it came from our own build, so
+         it's safe (and correct) to regenerate from scratch. Contrast with ReleaseWHQL below. -->
+    <NMakeCleanCommandLine>if exist Signed rmdir /s /q Signed
+if exist dist rmdir /s /q dist</NMakeCleanCommandLine>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseWHQL|x64'">
+    <NMakeBuildCommandLine>nmake /nologo -f sign.mak whql package</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>nmake /nologo -f sign.mak whql package</NMakeReBuildCommandLine>
+    <!-- Deliberately does NOT remove Signed\: Signed\Drivers\ holds the hand-placed HLK/WHQL
+         submission return, which can take days to get back and must survive a Clean. Only
+         dist\ (the zip) is regenerated output and safe to remove unconditionally. -->
+    <NMakeCleanCommandLine>if exist dist rmdir /s /q dist</NMakeCleanCommandLine>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="sign.mak" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>

@@ -57,7 +57,11 @@ added later following the same sample's pattern.
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
-    <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
+    <!-- $(MSBuildProjectDirectory)-relative, not $(SolutionDir)-relative: packaging/sign.mak
+         hardcodes ..\driver\x64\$(Configuration)\ as this project's output location, so it
+         must stay put regardless of whether this project is built standalone or as part of
+         OpenInputBridge.sln (where $(SolutionDir) would otherwise be the repo root instead). -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
   </PropertyGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />

@@ -91,14 +91,38 @@ git clone --recurse-submodules https://github.com/Applet-LLC/OpenInputBridge.git
 git submodule update --init --recursive
 ```
 
-### ドライバのビルド（要WDK）
+### ビルド（要WDK、`OpenInputBridge.sln`）
 
 `driver/` はKMDF（Kernel-Mode Driver Framework）ベースのWindowsカーネルドライバです。ビルドには以下が必要です。
 
 - Visual Studio 2022以降
-- Windows Driver Kit (WDK)あるいはEWDK（Enterprise WDK、ISOイメージをマウントして使うスタンドアロン版）が必要です。
+- Windows Driver Kit (WDK)あるいはEWDK（Enterprise WDK、ISOイメージをマウントして使うスタンドアロン版）
 
-詳細な手順は今後追記します。署名・パッケージング手順は `packaging/sign.mak` を参照してください。ロードマップは [ステータス](#ステータス) を参照してください。
+リポジトリ直下の `OpenInputBridge.sln` に、ドライバ・インストーラ・署名/パッケージングの3プロジェクトを
+まとめてあります。ドライバ／インストーラのビルドから、EV署名・`Signed\`への集約・配布用zip作成
+（`dist\OpenInputBridge.zip`）までを、ソリューション構成の切り替えだけで一括処理できます。
+
+| ソリューション構成 | 内容 |
+|---|---|
+| `Debug` | ドライバ・インストーラのみビルド（テスト署名、開発用）。署名・パッケージングは実行されません |
+| `Release` | ドライバ・インストーラをビルドし、両方をこのプロジェクトのEV証明書で署名して`packaging\Signed\`に集約、`dist\OpenInputBridge.zip`を作成（WHQL署名を取得する前の配布物） |
+| `ReleaseWHQL` | インストーラのみEV署名して集約し、`packaging\Signed\Drivers\`はHLK/WHQL申請から返ってきたファイルを**手動で配置したまま上書きしない**でzip作成（WHQL署名取得後の配布物） |
+
+EWDKを使う場合はビルド環境をセットアップしたコマンドプロンプトから、そのままソリューション全体をビルドできます。
+
+```bat
+K:\BuildEnv\SetupBuildEnv.cmd amd64
+msbuild OpenInputBridge.sln /p:Configuration=Release /p:Platform=x64
+```
+
+同じ環境変数を継いだまま `devenv OpenInputBridge.sln` でVisual Studio IDEを開いても操作できます。
+
+`ReleaseWHQL`構成を使う前に、HLK/WHQL申請から返ってきた `OpenInputBridge.inf` / `openinputbridge.cat` /
+`OpenInputBridge.sys` を `packaging\Signed\Drivers\` に手動でコピーしておいてください
+（`Signed\Symbol\` はこちらの手元のビルドから毎回自動で更新されます）。
+
+署名・パッケージングの内部的な処理内容（個別のnmakeターゲット等）は `packaging/sign.mak` のコメントを
+参照してください。ロードマップは [ステータス](#ステータス) を参照してください。
 
 ## 貢献
 

@@ -1,0 +1,47 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35222.181
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OpenInputBridge", "driver\OpenInputBridge.vcxproj", "{0EAE70FD-2B47-46A9-9AAD-BEFA01C2A552}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OpenInputBridgeSetup", "installer\OpenInputBridgeSetup.vcxproj", "{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Packaging", "packaging\Packaging.vcxproj", "{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}"
+	ProjectSection(ProjectDependencies) = postProject
+		{0EAE70FD-2B47-46A9-9AAD-BEFA01C2A552} = {0EAE70FD-2B47-46A9-9AAD-BEFA01C2A552}
+		{63B4A2EB-DF9A-46C4-BECD-D9B93186C785} = {63B4A2EB-DF9A-46C4-BECD-D9B93186C785}
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+		ReleaseWHQL|x64 = ReleaseWHQL|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0EAE70FD-2B47-46A9-9AAD-BEFA01C2A552}.Debug|x64.ActiveCfg = Debug|x64
+		{0EAE70FD-2B47-46A9-9AAD-BEFA01C2A552}.Debug|x64.Build.0 = Debug|x64
+		{0EAE70FD-2B47-46A9-9AAD-BEFA01C2A552}.Release|x64.ActiveCfg = Release|x64
+		{0EAE70FD-2B47-46A9-9AAD-BEFA01C2A552}.Release|x64.Build.0 = Release|x64
+		{0EAE70FD-2B47-46A9-9AAD-BEFA01C2A552}.ReleaseWHQL|x64.ActiveCfg = Release|x64
+		{0EAE70FD-2B47-46A9-9AAD-BEFA01C2A552}.ReleaseWHQL|x64.Build.0 = Release|x64
+		{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}.Debug|x64.ActiveCfg = Debug|x64
+		{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}.Debug|x64.Build.0 = Debug|x64
+		{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}.Release|x64.ActiveCfg = Release|x64
+		{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}.Release|x64.Build.0 = Release|x64
+		{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}.ReleaseWHQL|x64.ActiveCfg = Release|x64
+		{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}.ReleaseWHQL|x64.Build.0 = Release|x64
+		{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}.Debug|x64.ActiveCfg = Debug|x64
+		{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}.Release|x64.ActiveCfg = Release|x64
+		{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}.Release|x64.Build.0 = Release|x64
+		{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}.ReleaseWHQL|x64.ActiveCfg = ReleaseWHQL|x64
+		{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}.ReleaseWHQL|x64.Build.0 = ReleaseWHQL|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F1E4C9A2-3D6B-4A8E-9F1C-2B7D5A6E8C4F}
+	EndGlobalSection
+EndGlobal
