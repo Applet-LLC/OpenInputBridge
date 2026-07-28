@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Builds the UNMODIFIED oblitum/Interceptionライブラリ sample
+third_party/interception/samples/identify/identify.cpp (+ samples/utils.c, both referenced here
+IN PLACE, not copied) into identify.exe, using the modern MSBuild/EWDK toolchain instead of the
+sample's own build system (buildit.cmd, .\sources/.\makefile — see
+InterceptionLib.vcxproj's identical note on why: needs a standalone legacy WDK not part of the
+EWDK this repo otherwise builds with). This project file is itself self-authored (MIT) build
+tooling; it does not modify identify.cpp/utils.c/utils.h in any way — see third_party/README.md
+and docs/CLEAN_ROOM.md.
+
+identify.exe opens an InterceptionContext (all 20 control devices — M0), sets a keyboard/mouse
+filter (M3), reports which device index each stroke came from (validates M2's slot mapping),
+and sends every stroke back unchanged (M4's passthrough path) until Esc is pressed on a
+keyboard. A convenient single smoke test across M0/M2/M3/M4 against a real OpenInputBridge
+install. Not part of the shipped product — same as InterceptionLib.vcxproj, this is dev/test
+tooling only: included in OpenInputBridge.sln's Debug/Release configurations, not ReleaseWHQL,
+and never touched by packaging/sign.mak.
+
+Shares its OutDir with InterceptionLib.vcxproj (see that project's IntDir comment): both live in
+this same directory and both resolve OutDir to $(MSBuildProjectDirectory)\$(Platform)\
+$(Configuration)\, so identify.exe ends up sitting right next to interception.dll with no
+post-build copy step needed. Depends on InterceptionLib.vcxproj (ProjectReference below) purely
+for build ordering — interception.lib (the DLL's import library) must exist in that shared
+OutDir before this project links against it.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{9E4D2A7C-5F1B-4C8E-A3D6-1B7F9E2C4A5D}</ProjectGuid>
+    <RootNamespace>IdentifySample</RootNamespace>
+    <!-- See InterceptionLib.vcxproj's identical note: EWDK's vsdevcmd.bat -winsdk=none means a
+         plain (non-driver) project needs IncludePath/LibraryPath spelled out explicitly. -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- Deliberately the SAME OutDir as InterceptionLib.vcxproj — see header comment. -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <TargetName>identify</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <!-- Needed to resolve #include <interception.h> and #include <utils.h> exactly as the
+           unmodified sample source wrote them (no path rewriting). -->
+      <AdditionalIncludeDirectories>..\..\third_party\interception\library;..\..\third_party\interception\samples;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <!-- interception.lib is InterceptionLib.vcxproj's import library, landing in the shared
+           OutDir above thanks to the ProjectReference build-order dependency below. -->
+      <AdditionalDependencies>interception.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\third_party\interception\samples\identify\identify.cpp" />
+    <ClCompile Include="..\..\third_party\interception\samples\utils.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\third_party\interception\samples\utils.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="InterceptionLib.vcxproj">
+      <Project>{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

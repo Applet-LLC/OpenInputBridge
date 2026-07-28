@@ -13,6 +13,13 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Packaging", "packaging\Pack
 		{63B4A2EB-DF9A-46C4-BECD-D9B93186C785} = {63B4A2EB-DF9A-46C4-BECD-D9B93186C785}
 	EndProjectSection
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "InterceptionLib", "tests\upstream_lib\InterceptionLib.vcxproj", "{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "IdentifySample", "tests\upstream_lib\IdentifySample.vcxproj", "{9E4D2A7C-5F1B-4C8E-A3D6-1B7F9E2C4A5D}"
+	ProjectSection(ProjectDependencies) = postProject
+		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34} = {7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -37,6 +44,16 @@ Global
 		{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}.Release|x64.Build.0 = Release|x64
 		{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}.ReleaseWHQL|x64.ActiveCfg = ReleaseWHQL|x64
 		{A3D8F2C1-6B4E-4F7A-9D2C-8E5B1A7F3C90}.ReleaseWHQL|x64.Build.0 = ReleaseWHQL|x64
+		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}.Debug|x64.ActiveCfg = Debug|x64
+		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}.Debug|x64.Build.0 = Debug|x64
+		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}.Release|x64.ActiveCfg = Release|x64
+		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}.Release|x64.Build.0 = Release|x64
+		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}.ReleaseWHQL|x64.ActiveCfg = Release|x64
+		{9E4D2A7C-5F1B-4C8E-A3D6-1B7F9E2C4A5D}.Debug|x64.ActiveCfg = Debug|x64
+		{9E4D2A7C-5F1B-4C8E-A3D6-1B7F9E2C4A5D}.Debug|x64.Build.0 = Debug|x64
+		{9E4D2A7C-5F1B-4C8E-A3D6-1B7F9E2C4A5D}.Release|x64.ActiveCfg = Release|x64
+		{9E4D2A7C-5F1B-4C8E-A3D6-1B7F9E2C4A5D}.Release|x64.Build.0 = Release|x64
+		{9E4D2A7C-5F1B-4C8E-A3D6-1B7F9E2C4A5D}.ReleaseWHQL|x64.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

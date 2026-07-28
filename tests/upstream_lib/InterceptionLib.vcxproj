@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Builds the UNMODIFIED oblitum/Interceptionライブラリ (third_party/interception/library/
+interception.c, LGPL, referenced here IN PLACE — not copied) into interception.dll, using the
+modern MSBuild/EWDK toolchain instead of the vendored library's own build system
+(buildit(-x64).cmd -> the classic NT DDK "build.exe", driven by .\sources/.\makefile), which
+needs a standalone legacy WDK (%WDK%\bin\setenv.cmd, ~7.1-era) that isn't part of the EWDK this
+repo otherwise builds with. This project file is itself self-authored (MIT) build tooling; it
+does not modify interception.c/.h in any way — see third_party/README.md and
+docs/CLEAN_ROOM.md.
+
+interception.rc is intentionally NOT included: it pulls in common.ver, a version-resource
+include shipped by that same classic WDK build environment, not by the Windows SDK. Skipping
+it only drops the DLL's embedded version resource (cosmetic) — everything interception.c
+itself implements is unaffected.
+
+Used by tests/upstream_lib/ to run oblitum/Interceptionライブラリ's own unmodified samples
+(third_party/interception/samples/) against OpenInputBridge — the strongest available
+compatibility evidence for M3/M4/M8. Not part of the shipped product: OpenInputBridge.sln
+builds this alongside driver/installer for convenience, but packaging/sign.mak never touches
+it, and it never lands in dist\OpenInputBridge.zip.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}</ProjectGuid>
+    <RootNamespace>InterceptionLib</RootNamespace>
+    <!--
+      Deliberately not setting WindowsTargetPlatformVersion here — see
+      installer/OpenInputBridgeSetup.vcxproj's identical note: the EWDK build environment
+      (SetupBuildEnv.cmd) invokes vsdevcmd.bat with -winsdk=none, so a plain (non-driver)
+      project needs the IncludePath/LibraryPath below spelled out explicitly instead of relying
+      on Microsoft.Cpp.props' usual SDK auto-detection.
+    -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- $(MSBuildProjectDirectory)-relative — see driver/installer's identical note on why
+         $(SolutionDir) is avoided now that OpenInputBridge.sln exists. -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <!-- Shared OutDir with IdentifySample.vcxproj in this same directory (so identify.exe finds
+         interception.dll alongside it without a post-build copy step) — IntDir must therefore
+         be kept project-specific to avoid the two projects' intermediates colliding. -->
+    <IntDir>$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <TargetName>interception</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <!-- INTERCEPTION_EXPORT selects __declspec(dllexport) in interception.h's own
+           INTERCEPTION_API macro when building the DLL itself (consumers that #include
+           interception.h without defining this get dllimport instead — unchanged upstream
+           behavior, see interception.h). -->
+      <PreprocessorDefinitions>INTERCEPTION_EXPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)'=='Debug'">_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)'=='Release'">NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\third_party\interception\library\interception.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\third_party\interception\library\interception.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
