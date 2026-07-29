@@ -30,11 +30,13 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 | M4 | `IOCTL_WRITE`（合成入力の注入／捕捉ストロークの解放） | ✅ 完了 |
 | M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 実装済み。配送モデルは作者本人の技術記事で確認済み（[docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md)）だが、フィルタのビット照合規則は引き続き実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 | M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了 |
-| M7 | コード署名 | 🔶 EV署名は完了。WHQL署名は申請待ち |
+| M7 | コード署名 | 🔶 EV署名は完了。HLKテストを実施しWHQL署名の取得を目指す |
 | M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中 |
 | M9 | デバイス数上限（現行20台）の撤廃（将来対応） | 📋 未着手 |
 
 詳細なタスク管理は [Issues](../../issues) / [Projects](../../projects) を参照してください。
+
+**M7（WHQL署名）について**: Microsoftはスタンドアロンのattestation signingを既に提供しておらず、WHQL署名を得るにはHLKテストの実施・提出が前提となります。本ドライバは現在キーボード/マウス両クラスに対応する単一バイナリですが、HLKの試験要件・結果次第では、キーボード用・マウス用でドライバを分割する可能性があります。
 
 ## アーキテクチャ概要
 

@@ -26,8 +26,10 @@
 # Two distinct pipelines into Signed\, both ending in the same "package" step:
 #
 #   Pre-WHQL ("all"): this driver hasn't been through HLK/WHQL yet, so its .sys/.cat get our
-#   own EV signature (attestation signing) same as the installer .exe. "all" = sign + stage
-#   covers all of Signed\ from our own Release build output.
+#   own plain EV signature (signtool, our own certificate) same as the installer .exe -- not
+#   Microsoft attestation signing, which Microsoft no longer offers as a standalone option;
+#   getting a WHQL-trusted catalog now means an actual HLK submission (see README.md's M7
+#   status note). "all" = sign + stage covers all of Signed\ from our own Release build output.
 #
 #   Post-WHQL ("whql"): once this driver has gone through HLK/WHQL, its .inf/.cat/.sys no
 #   longer come from local signing — they come back from that submission process and get
