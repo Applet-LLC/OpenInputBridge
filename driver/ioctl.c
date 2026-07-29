@@ -529,6 +529,16 @@ OibCtlHandleRead(
 
     OibSlotLockInstances(fileContext->SlotIndex);
     recordsCopied = OibFileContextQueueDrain(fileContext, outputBuffer, outputBufferSize, strokeSize);
+    // The user-mode library's "unempty" event is manual-reset (see interception_create_context's
+    // CreateEventA(..., TRUE, ...)) and is level-triggered on "queue non-empty": we're the only
+    // side that can ever clear it back down, so a drain that empties the queue must do so here,
+    // still under the same lock as the drain itself (a concurrent push taking the lock right
+    // after us will correctly re-set it for its own new data). Without this, the event latches
+    // signaled forever after the very first stroke, and every later WaitForMultipleObjects call
+    // in interception_wait returns immediately with nothing new to read.
+    if (fileContext->QueueCount == 0 && fileContext->UnemptyEvent != NULL) {
+        KeClearEvent(fileContext->UnemptyEvent);
+    }
     OibSlotUnlockInstances(fileContext->SlotIndex);
 
     WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, (ULONG_PTR)(recordsCopied * strokeSize));
