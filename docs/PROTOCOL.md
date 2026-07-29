@@ -89,6 +89,14 @@ typedef struct _MOUSE_INPUT_DATA
   公開ヘッダ `interception.h` の enum 定義の構造から機械的に導出した最善推測であり、実物ドライバの挙動で
   確認したものではない（`driver/ioctl.c` の `OibComputeKeyboardRequiredFilterBits` /
   `OibComputeMouseRequiredFilterBits` 参照）。precedenceと同様、M5でのブラックボックス検証対象。
+  ビット値そのものとは別に、候補インスタンスの`Filter`とストロークの要求ビット列（`RequiredFilterBits`）の
+  照合方式（`driver/ioctl.c`の`OibFindNextChainRecipient`）は、**一部重複（overlap）で一致**とする
+  （supersetを要求しない）。キーボードは1ストロークにつき要求ビットが常に単一（DOWN xor UP）なので
+  overlapとsupersetは等価だが、マウスは1レコードに複数の要求ビットが同時に立ちうる
+  （ボタン遷移と`INTERCEPTION_FILTER_MOUSE_MOVE`合成ビットが同一パケットに同時に現れるのが実運用では
+  ほぼ常態——実際のマウスはクリック時に手ブレでほぼ必ず微小な移動を伴う）。supersetを要求する実装では、
+  MOVEを要求していないフィルタ（例: `INTERCEPTION_FILTER_MOUSE_LEFT_BUTTON_DOWN`のみ）がクリックを
+  事実上ほぼ全く捕捉できなくなる不具合が実機テストで確認されたため、overlap方式に修正した。
 - **`IOCTL_GET_PRECEDENCE` / `IOCTL_SET_PRECEDENCE`**: `int`。同一の物理デバイスを複数プロセスが同時に
   フックしている場合の優先順位。
   **実装上の注記（M5実装済み）**: precedenceは「一致した全インスタンスへの独立コピー配送」ではなく、

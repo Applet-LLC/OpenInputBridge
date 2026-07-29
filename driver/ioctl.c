@@ -667,7 +667,14 @@ OibFindNextChainRecipient(
             continue; // FILTER_*_NONE: never capture.
         }
 
-        if ((candidate->Filter & RequiredFilterBits) != RequiredFilterBits) {
+        // Overlap match, not superset: RequiredFilterBits can carry more than one
+        // simultaneously-true aspect of a single stroke (a mouse packet routinely has a
+        // button transition AND nonzero movement in the same record — real mice essentially
+        // always report a little jitter alongside a click), and a listener that only asked
+        // for one of those aspects (e.g. just LEFT_BUTTON_DOWN) should still see it. For
+        // keyboard, RequiredFilterBits is always exactly one bit, where overlap and superset
+        // are equivalent, so this is a no-op change there.
+        if ((candidate->Filter & RequiredFilterBits) == 0) {
             continue;
         }
 
