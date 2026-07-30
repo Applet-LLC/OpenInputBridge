@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <chrono>
 
 namespace {
 
@@ -48,15 +49,22 @@ enum ScanCode
 void PrintTimestamp()
 {
     using namespace std;
+    using namespace std::chrono;
 
-    // Wall-clock marker (not just a stroke count) so output interleaved across several
-    // separate console windows can still be put back in order by eye.
-    time_t now = time(nullptr);
+    // Microsecond resolution, not just seconds: chain continuation between two instances
+    // (this process resending, the next one's interception_wait waking up) happens well under
+    // a second apart -- often under a millisecond -- so a plain HH:MM:SS marker shows the same
+    // value for both and can't be used to eyeball which instance printed first.
+    system_clock::time_point now = system_clock::now();
+    time_t nowTimeT = system_clock::to_time_t(now);
+    microseconds microsPart = duration_cast<microseconds>(now.time_since_epoch() % seconds(1));
+
     tm localTime;
-    localtime_s(&localTime, &now);
+    localtime_s(&localTime, &nowTimeT);
 
     cout << setfill('0') << setw(2) << localTime.tm_hour << ':'
-         << setw(2) << localTime.tm_min << ':' << setw(2) << localTime.tm_sec << setfill(' ');
+         << setw(2) << localTime.tm_min << ':' << setw(2) << localTime.tm_sec << '.'
+         << setw(6) << microsPart.count() << setfill(' ');
 }
 
 } // namespace
