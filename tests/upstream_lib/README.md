@@ -123,3 +123,52 @@ caps2esc.exe
 確認する。`Ctrl`を押しながらCapsLockを押すと、通常の`Ctrl`+何かの組み合わせとして機能することも
 確認するとよい。二重起動防止（`try_open_single_program`）が入っているため、2つ目のプロセスは
 即座に終了する（正常な動作）。終了はコンソールウィンドウを閉じるか`Ctrl+C`。
+
+## `axes`（マウス側の中身書き換えテスト）
+
+`caps2esc`のマウス版。無改変の`samples/axes/axes.cpp`（`AxesSample.vcxproj`）を実行すると、
+相対移動時のマウスのY軸（縦方向）が反転する。マウスを動かして、縦方向だけ逆に動くこと
+（左右はそのまま、上下だけ逆転）を確認する。キーボードのDOWN/UPはそのまま素通しされる
+（Escで終了）。
+
+```bat
+cd tests\upstream_lib\x64\Release
+axes.exe
+```
+
+## `cadstop`（`INTERCEPTION_FILTER_KEY_ALL`・Ctrl+Alt+Del捕捉のテスト）
+
+無改変の`samples/cadstop/cadstop.cpp`（`CadStopSample.vcxproj`）。これまでのツールは全部
+`INTERCEPTION_FILTER_KEY_DOWN|UP`のみを使っていたが、これは`INTERCEPTION_FILTER_KEY_ALL`
+（0xFFFF）を使うため、E0/E1等の他のビットも含めたフィルタ照合の追加確認になる。また、
+Win32のフック（`SetWindowsHookEx`等）では原理的にブロックできないCtrl+Alt+Delの捕捉を試みる、
+kbdclassより下でフックする本ドライバならではの動作確認でもある。
+
+```bat
+cd tests\upstream_lib\x64\Release
+cadstop.exe
+```
+
+実行した状態でCtrl+Alt+Delを押し、通常のセキュリティ画面（Windowsのロック画面等）が
+**出ない**ことを確認する（＝捕捉できている証拠）。コンソールに`ctrl-alt-del pressed`と
+表示されることも合わせて確認する。念のため: 何か問題があっても実害はなく、コンソール
+ウィンドウを閉じれば通常通りCtrl+Alt+Delが機能する状態に戻る。
+
+## `mathpointer`（絶対座標・高頻度連続WRITEのテスト）
+
+無改変の`samples/mathpointer/mathpointer.cpp`（`MathPointerSample.vcxproj`）。これまでの
+ツールはすべて相対移動の素通し/変換だったが、これは`INTERCEPTION_MOUSE_MOVE_ABSOLUTE`
+（絶対座標指定）でのマウス移動と、1本の曲線あたり数百回に及ぶ連続`IOCTL_WRITE`呼び出しを
+テストできる。**実機での動作を想定したサンプル**（仮想マシンでは正しく動かない場合がある、と
+サンプル自身が起動時に警告する）。
+
+```bat
+cd tests\upstream_lib\x64\Release
+mathpointer.exe
+```
+
+実行するとまず「なりすます対象のマウスを動かしてください」と表示されるので、実際に使う
+マウスを少し動かす。その後、ペイント等の描画アプリを開いてお絵描きモードにし、数字キー
+（テンキーではない方の0〜9）を押すと、その数字に対応した曲線をマウスカーソルが自動で
+描画する（クリック状態も自動制御される）。Escで終了。曲線がなめらかに正しく描画されれば、
+絶対座標指定・高頻度連続WRITEとも問題なく機能している証拠になる。
