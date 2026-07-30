@@ -19,20 +19,20 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ## ステータス
 
-コア機能（ドライバ本体・インストーラ・コード署名）は実装済みです。他ドキュメント中の「M0」「M5」等の表記は、以下のマイルストーンを指しています。
+コア機能（ドライバ本体・インストーラ・コード署名）は実装済みで、実機での動作確認も進めています。他ドキュメント中の「M0」「M5」等の表記は、以下のマイルストーンを指しています。実装済みでも実機テストがまだ済んでいない部分は、状態欄にその旨を明記しています。
 
 | マイルストーン | 内容 | 状態 |
 |---|---|---|
-| M0 | ドライバ骨格（常時20個のコントロールデバイスを作成） | ✅ 完了 |
-| M1 | キーボード/マウスへのフィルタアタッチ・素通し | ✅ 完了 |
-| M2 | スロット管理・`IOCTL_GET_HARDWARE_ID` | ✅ 完了 |
-| M3 | フィルタビットマスク・捕捉キュー・`IOCTL_READ`/`IOCTL_SET_EVENT` | ✅ 完了 |
-| M4 | `IOCTL_WRITE`（合成入力の注入／捕捉ストロークの解放） | ✅ 完了 |
-| M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 実装済み。配送モデルは作者本人の技術記事で確認済み（[docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md)）だが、フィルタのビット照合規則は引き続き実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
-| M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了 |
-| M7 | コード署名 | 🔶 EV署名は完了。HLKテストを実施しWHQL署名の取得を目指す |
-| M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中 |
-| M9 | デバイス数上限（現行20台）の撤廃（将来対応） | 📋 未着手 |
+| M0 | ドライバ骨格（常時20個のコントロールデバイスを作成） | ✅ 完了・実機確認済み |
+| M1 | キーボード/マウスへのフィルタアタッチ・素通し | ✅ 完了・実機確認済み |
+| M2 | スロット管理・`IOCTL_GET_HARDWARE_ID` | ✅ 実装済み。スロット割当は実機確認済みだが、`IOCTL_GET_HARDWARE_ID`自体は未テスト |
+| M3 | フィルタビットマスク・捕捉キュー・`IOCTL_READ`/`IOCTL_SET_EVENT` | ✅ 実装・実機テスト済み。実機テストで捕捉キューのイベントクリア漏れとマウスフィルタの照合方式（overlap/superset）の2件のバグを発見・修正済み |
+| M4 | `IOCTL_WRITE`（合成入力の注入／捕捉ストロークの解放） | ✅ 実装・実機テスト済み |
+| M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 実装済み。配送モデルは作者本人の技術記事で確認済み（[docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md)）だが、**複数プロセス同時アタッチでの実機テストは未実施**、フィルタのビット照合規則も実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
+| M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了・実機テスト済み（インストール/アンインストール/再起動サイクル、サービス登録、UpperFilters順序を確認） |
+| M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKテストを実施しWHQL署名の取得を目指す |
+| M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)のサンプルでM0/M2（部分）/M3/M4の基本動作は実機確認済みだが、AutoHotkeyのInterception fork等、実際の消費者アプリでの検証は未実施 |
+| M9 | デバイス数上限（現行20台）の撤廃（将来対応） | 📋 未着手。現行上限のうちキーボード10台は実機で確認済み、マウス10台は検証機材の都合で未確認（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 
 詳細なタスク管理は [Issues](../../issues) / [Projects](../../projects) を参照してください。
 
@@ -125,6 +125,13 @@ msbuild OpenInputBridge.sln /p:Configuration=Release /p:Platform=x64
 
 署名・パッケージングの内部的な処理内容（個別のnmakeターゲット等）は `packaging/sign.mak` のコメントを
 参照してください。ロードマップは [ステータス](#ステータス) を参照してください。
+
+### 動作確認（`tests/upstream_lib/`）
+
+無改変の`third_party/interception/library/interception.c`と、実機での動作確認用サンプル
+（`identify`/`identify2`）も同じ`OpenInputBridge.sln`のDebug/Release構成でビルドされます。
+インストール済みのOpenInputBridgeに対してキーボード/マウスの捕捉・パススルーが実際に機能しているかを
+手元で確認できます。詳細は [`tests/upstream_lib/README.md`](tests/upstream_lib/README.md) を参照してください。
 
 ## 貢献
 
