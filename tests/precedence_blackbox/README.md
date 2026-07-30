@@ -83,3 +83,17 @@ precedence_probe.exe <precedence> [--consume]
 方が優先されるはず）。
 
 観察結果・期待通りだったかどうかは、このREADMEまたは`docs/CLEAN_ROOM.md`に追記すること。
+
+### 観察結果（2026-07-30、実機）
+
+3シナリオすべて実機で確認済み、いずれも想定通り。
+
+1. 配送順序とチェーン継続: 想定通り
+2. 捕捉による遮断: 想定通り
+3. 同precedenceでのアタッチ順タイブレーク: 想定通り。マイクロ秒精度のタイムスタンプ表示に
+   修正した上で確認したところ、常にAが先に表示された（`OibIsHigherPriority`の
+   `AttachSequence`比較が正しく機能している）。
+
+`driver/ioctl.c`のprecedenceフックチェーン実装（`OibFindNextChainRecipient`/
+`OibIsHigherPriority`/`OibCtlHandleWrite`）は、配送順序・チェーン継続・捕捉遮断・
+同precedenceのタイブレークいずれも実機で確認済み。

@@ -28,7 +28,7 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 | M2 | スロット管理・`IOCTL_GET_HARDWARE_ID` | ✅ 完了・実機テスト済み（`hardwareid.exe`でキーボード/マウス複数台のハードウェアID取得を確認） |
 | M3 | フィルタビットマスク・捕捉キュー・`IOCTL_READ`/`IOCTL_SET_EVENT` | ✅ 実装・実機テスト済み。実機テストで捕捉キューのイベントクリア漏れとマウスフィルタの照合方式（overlap/superset）の2件のバグを発見・修正済み |
 | M4 | `IOCTL_WRITE`（合成入力の注入／捕捉ストロークの解放） | ✅ 実装・実機テスト済み |
-| M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 実装済み。`tests/precedence_blackbox/`の`precedence_probe`による複数プロセス同時アタッチの実機テストで、配送順序・チェーン継続・捕捉による遮断は想定通りと確認済み。同precedenceでのアタッチ順タイブレークは確認中。フィルタのビット照合規則は実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
+| M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 完了・実機テスト済み。`tests/precedence_blackbox/`の`precedence_probe`による複数プロセス同時アタッチの実機テストで、配送順序・チェーン継続・捕捉による遮断・同precedenceでのアタッチ順タイブレークすべて想定通りと確認済み。フィルタのビット照合規則自体は引き続き実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 | M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了・実機テスト済み（インストール/アンインストール/再起動サイクル、サービス登録、UpperFilters順序を確認） |
 | M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKテストを実施しWHQL署名の取得を目指す |
 | M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)のサンプルでM0/M2/M3/M4の基本動作は実機確認済みだが、AutoHotkeyのInterception fork等、実際の消費者アプリでの検証は未実施 |
