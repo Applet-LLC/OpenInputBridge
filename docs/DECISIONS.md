@@ -130,3 +130,23 @@ OpenInputBridgeの`driver/*.c`には現状`alloc_text`が一切無く、該当�
 `OibSlotAssign`/`OibSlotRelease`（スピンロック区間）を非ページの別関数に切り出す必要がある。
 `driver/kbdfilter.c`・`driver/mousefilter.c`の該当関数に、この注意点をコメントとして
 残している。
+
+---
+
+## 2026-07-31: USBキーボード多数接続時にWindowsが起動しない件 → OpenInputBridgeとは無関係と確認
+
+実機テストで、USBキーボードを10個程度接続したままWindowsを起動できない事象が報告された。
+コードレビューでは、`OibKbdEvtDeviceAdd`（`driver/kbdfilter.c`）・`OibSlotAssign`
+（`driver/slots.c`）ともデバイス数に応じて悪化するブロッキング待機・デッドロック・無限ループの
+類は見当たらず（スロット枯渇時も`OIB_SLOT_INDEX_NONE`が正しく設定され、素通しフィルタとして
+安全に動作を続ける設計・実装になっている）、`OIB_KEYBOARD_SLOT_COUNT=10`という値との一致は
+気になったものの、コード上の根拠は見つからなかった。
+
+その後、**OpenInputBridgeドライバを完全にアンインストールした状態でも同じ事象が再現する**
+ことが実機で確認された。したがってこれはOpenInputBridge固有の不具合ではなく、テスト環境
+（Windows自体、あるいはUSBホストコントローラ/ハブ側）に起因する問題と判断してよい。
+
+`bcdedit /set bootlog yes`による起動ログ（`ntbtlog.txt`）は、キーボードを抜いて起動に
+成功した際のログしか取得できず（起動できなかった試行そのもののログは残らない）、
+イベントビューアーもドライバ未インストール状態のため参照先が無く、これ以上の原因究明は
+本プロジェクトのスコープ外として現時点では追わない。
