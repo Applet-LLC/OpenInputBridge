@@ -30,6 +30,11 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HardwareIdSample", "tests\u
 		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34} = {7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}
 	EndProjectSection
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "PrecedenceProbe", "tests\precedence_blackbox\PrecedenceProbe.vcxproj", "{E7F1A4C2-3B9D-4E6A-9C7F-1D8B4A6E2F53}"
+	ProjectSection(ProjectDependencies) = postProject
+		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34} = {7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -74,6 +79,11 @@ Global
 		{D2A6C4E8-9B3F-4A7D-8C1E-6F5A2B9D3E71}.Release|x64.ActiveCfg = Release|x64
 		{D2A6C4E8-9B3F-4A7D-8C1E-6F5A2B9D3E71}.Release|x64.Build.0 = Release|x64
 		{D2A6C4E8-9B3F-4A7D-8C1E-6F5A2B9D3E71}.ReleaseWHQL|x64.ActiveCfg = Release|x64
+		{E7F1A4C2-3B9D-4E6A-9C7F-1D8B4A6E2F53}.Debug|x64.ActiveCfg = Debug|x64
+		{E7F1A4C2-3B9D-4E6A-9C7F-1D8B4A6E2F53}.Debug|x64.Build.0 = Debug|x64
+		{E7F1A4C2-3B9D-4E6A-9C7F-1D8B4A6E2F53}.Release|x64.ActiveCfg = Release|x64
+		{E7F1A4C2-3B9D-4E6A-9C7F-1D8B4A6E2F53}.Release|x64.Build.0 = Release|x64
+		{E7F1A4C2-3B9D-4E6A-9C7F-1D8B4A6E2F53}.ReleaseWHQL|x64.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
