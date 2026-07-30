@@ -2,30 +2,30 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// Improved rewrite of oblitum/Interceptionライブラリ's samples/identify/identify.cpp for
-// interactively confirming M0/M2/M3/M4 against a real OpenInputBridge install. Self-authored
-// (does not touch third_party/interception/ in any way -- it's a plain consumer of the
-// unmodified public interception.h/interception.dll, same as the original sample). See
-// third_party/README.md and docs/CLEAN_ROOM.md.
+// A more detailed companion to oblitum/Interceptionライブラリ's samples/identify/identify.cpp,
+// for interactively confirming M0/M2/M3/M4 against a real OpenInputBridge install.
+// Self-authored (does not touch third_party/interception/ in any way -- it's a plain consumer
+// of the unmodified public interception.h/interception.dll, same as the original sample; there
+// is no reason to modify identify.cpp itself, and this repo's vendoring policy wouldn't allow
+// it anyway). See third_party/README.md and docs/CLEAN_ROOM.md.
 //
 // What's different from the original identify sample, and why:
 //
-// 1. Round-robin drain instead of trusting interception_wait()'s returned device alone.
-//    interception_wait() is INFINITE WaitForMultipleObjects() over all 20 device handles, and
-//    Win32 documents that when several handles are signaled at once, it returns the SMALLEST
-//    array index among them. Keyboards occupy indices 0-9, mice 10-19, so whenever a keyboard
-//    and a mouse both have pending strokes, the keyboard always wins the wait -- every single
-//    time -- and a naive "wait once, handle one, loop" reader (the original sample's structure)
-//    starves the mouse for as long as keyboard activity keeps arriving. Real testing showed
-//    exactly that: mouse output stalling, then appearing in a burst once keyboard input let a
-//    wait finally return a mouse index. Here, each wake sweeps every device with a
-//    non-blocking interception_receive() and keeps re-sweeping until a full pass finds nothing
-//    left, so no device can be starved by another regardless of activity level.
-// 2. Mouse filter covers left/right/middle button down AND up (the original only asked for
-//    LEFT_BUTTON_DOWN), so all three main buttons are actually exercised by this tool.
-// 3. Prints richer detail per stroke (hex code/state for keyboard, button state + x/y for
+// 1. Prints richer detail per stroke (hex code/state for keyboard, button state + x/y for
 //    mouse) instead of just the device index, since "does it work" needs to be visibly
 //    verifiable, not just "did anything happen at all".
+// 2. Mouse filter covers left/right/middle button down AND up (the original only asked for
+//    LEFT_BUTTON_DOWN), so all three main buttons are actually exercised by this tool.
+// 3. Round-robin drain (sweep every device with a non-blocking interception_receive() each
+//    time interception_wait() wakes up, repeating the sweep until a full pass finds nothing
+//    left) rather than handling only the single device interception_wait() happened to name
+//    before waiting again. This means no device's queue depends on which one
+//    WaitForMultipleObjects (used internally by interception_wait()) happened to report first
+//    when several are signaled at once, which seemed a plausible cause the first time output
+//    appeared to stall -- though real testing traced that specific symptom to a console
+//    QuickEdit-mode selection pause instead (clicking inside the console window itself pauses
+//    its output until the selection is cleared -- unrelated to identify.cpp or the driver; see
+//    this directory's README). Kept anyway as a reasonable property in its own right.
 
 #include <interception.h>
 #include <utils.h>

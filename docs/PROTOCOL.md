@@ -30,6 +30,10 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 デバイスすべてのオープンに成功しないと `NULL` を返す。したがって本ドライバは、**物理的なキーボード/マウスの
 接続台数に関わらず、常に20個すべてのコントロールデバイスを公開し続けなければならない**。
 
+実機確認状況: キーボード10台の上限（11台目が認識されない）は実機で確認済み。マウス10台の上限は、
+テスト環境でマウスを10台以上用意できないため未確認・保留（M9のデバイス数上限撤廃とは別に、
+上限値そのものの実機検証タスクとして残る）。
+
 ## IOCTLコード
 
 すべて `CTL_CODE(FILE_DEVICE_UNKNOWN, function, METHOD_BUFFERED, FILE_ANY_ACCESS)` で定義される。
