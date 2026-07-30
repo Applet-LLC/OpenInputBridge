@@ -84,3 +84,18 @@ QuickEditモード（クリック＝範囲選択開始）が働き、選択解�
 cd tests\upstream_lib\x64\Release
 identify2.exe
 ```
+
+## `hardwareid`（M2: `IOCTL_GET_HARDWARE_ID`のスモークテスト）
+
+無改変の`samples/hardwareid/hardwareid.cpp`を`HardwareIdSample.vcxproj`でビルドしたもの
+（`identify`/`identify2`と同じ理由・同じ方式）。キーボード操作・マウス左クリックのたびに、
+そのイベントを発生させた物理デバイスのハードウェアIDを`IOCTL_GET_HARDWARE_ID`経由で取得して表示する。
+
+```bat
+cd tests\upstream_lib\x64\Release
+hardwareid.exe
+```
+
+実行してキーボード/マウスを操作し、`USB\VID_xxxx&PID_xxxx\...`のような、そのデバイスの実際の
+ハードウェアIDらしき文字列が表示されればM2の合格基準を満たす。空文字列や明らかにおかしい値しか
+出ない場合はドライバ側の`OibCtlHandleGetHardwareId`（`driver/ioctl.c`）を要確認。
