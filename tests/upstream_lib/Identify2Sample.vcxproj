@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Builds identify2.cpp (self-authored, see its own header comment for what it improves on over
+third_party/interception/samples/identify/identify.cpp and why) into identify2.exe. Reuses the
+unmodified samples/utils.c (just for raise_process_priority()) the same way the original sample
+does; identify2.cpp itself is not vendored code.
+
+Structured identically to IdentifySample.vcxproj: shares OutDir with InterceptionLib.vcxproj
+(own IntDir to avoid intermediate collisions), depends on it only for build ordering, and is
+dev/test tooling only — included in OpenInputBridge.sln's Debug/Release configurations, not
+ReleaseWHQL, never touched by packaging/sign.mak.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{B5E8F3A1-7C2D-4E9B-A4F6-3D8C1E9B5A72}</ProjectGuid>
+    <RootNamespace>Identify2Sample</RootNamespace>
+    <!-- See InterceptionLib.vcxproj's identical note: EWDK's vsdevcmd.bat -winsdk=none means a
+         plain (non-driver) project needs IncludePath/LibraryPath spelled out explicitly. -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- Deliberately the SAME OutDir as InterceptionLib.vcxproj — see IdentifySample.vcxproj's
+         identical note. -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <TargetName>identify2</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>..\..\third_party\interception\library;..\..\third_party\interception\samples;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <!-- interception.lib is InterceptionLib.vcxproj's import library, landing in the shared
+           OutDir above thanks to the ProjectReference build-order dependency below. -->
+      <AdditionalDependencies>interception.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="identify2.cpp" />
+    <ClCompile Include="..\..\third_party\interception\samples\utils.c">
+      <!-- Vendored, unmodified C source pulled into this self-authored C++ project purely for
+           raise_process_priority(); it has its own deprecation warnings (strcpy/strcat) that
+           aren't this project's to fix — don't hold it to this project's WX/W4. -->
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\third_party\interception\samples\utils.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="InterceptionLib.vcxproj">
+      <Project>{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

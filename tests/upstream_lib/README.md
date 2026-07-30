@@ -56,3 +56,35 @@ identify.exe
 がコンソールに出力され続ける（= M0のcontext作成成功 + M2のスロット番号割当 + M3のフィルタ経由の捕捉が
 できている証拠）。操作したキーボード/マウスは普段通り動く（= M4の書き戻し=パススルーが機能している証拠）。
 キーボードでEscを押すと終了する。
+
+**既知の制約**: このサンプル（無改変のupstreamコード）は`interception_wait`が返した1台分だけを
+処理してから次の待ちに戻る作りになっている。`interception_wait`内部の`WaitForMultipleObjects`は
+複数ハンドルが同時にシグナル状態のとき「配列中で最小のインデックス」を返す仕様があり、キーボード
+（インデックス0-9）はマウス（10-19）より先に並ぶため、キーボード操作が続くとマウス側の捕捉が
+後回しになり、出力が滞留してまとまって出てくることがある。実機テストで確認済み。下記の`identify2`は
+この点を改善したもの。
+
+## `identify2`（改良版スモークテスト、推奨）
+
+`identify`実行時に、キーボード操作を続けているとマウスの捕捉出力が滞留し、キーボード操作の
+タイミングでまとまって出てくる現象が実機テストで確認された（上記「既知の制約」参照）。upstreamの
+`identify.cpp`自体に手を入れる理由は無い（クリーンルーム方針・vendoring方針上、変更しない）ため、
+代わりに自作の`identify2.cpp`（`tests/upstream_lib/identify2.cpp`、MITライセンス）を用意した。
+
+`identify.cpp`との違い:
+
+- **ラウンドロビン方式で全20デバイスを毎回スイープする**。`interception_wait`で誰かが起きたら、
+  それだけを処理するのではなく、20デバイス全部を非ブロッキングの`interception_receive`で
+  一巡（読める分が無くなるまで）確認する。`WaitForMultipleObjects`の「最小インデックス優先」の
+  影響を受けないため、キーボードがマウスの捕捉を飢餓状態にすることがない。
+- マウス側フィルタを左/右/中央ボタンのDOWN+UP全部に拡張（`identify`はLEFT_BUTTON_DOWNのみ）。
+- 各行にコード/状態（16進）・マウスならボタン状態とx/y座標も表示し、何が起きているかより
+  詳細に確認できる。
+
+`Identify2Sample.vcxproj`でビルドされ、出力先・実行方法は`identify`と同じ
+（`tests\upstream_lib\x64\Release\identify2.exe`）。
+
+```bat
+cd tests\upstream_lib\x64\Release
+identify2.exe
+```
