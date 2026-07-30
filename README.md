@@ -31,7 +31,7 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 | M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 完了・実機テスト済み。`tests/precedence_blackbox/`の`precedence_probe`による複数プロセス同時アタッチの実機テストで、配送順序・チェーン継続・捕捉による遮断・同precedenceでのアタッチ順タイブレークすべて想定通りと確認済み。フィルタのビット照合規則自体は引き続き実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 | M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了・実機テスト済み（インストール/アンインストール/再起動サイクル、サービス登録、UpperFilters順序を確認） |
 | M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKテストを実施しWHQL署名の取得を目指す |
-| M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)のサンプル（`identify`/`identify2`/`hardwareid`/`caps2esc`/`axes`/`cadstop`/`mathpointer`）でM0/M2/M3/M4の基本動作・実際のキーリマップ（キーボード/マウス双方）・`INTERCEPTION_FILTER_KEY_ALL`での広範なフィルタ照合・絶対座標指定と高頻度連続WRITEまで実機確認済み。特にkbdclassより下でのCtrl+Alt+Del捕捉がWindows 11でも機能することを確認（`cadstop`。Win32のフックでは原理的に不可能な動作）。AutoHotkeyのInterception fork等、実際の消費者アプリでの検証は未実施 |
+| M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)に、`third_party/interception/samples/`配下の全サンプル（`identify`/`hardwareid`/`caps2esc`/`axes`/`cadstop`/`mathpointer`/`x2y`）と自作の`identify2`をビルドするプロジェクトを用意し、M0/M2/M3/M4の基本動作・実際のキーリマップ（キーボード/マウス双方）・`INTERCEPTION_FILTER_KEY_ALL`での広範なフィルタ照合・絶対座標指定と高頻度連続WRITEまで実機確認済み。特にkbdclassより下でのCtrl+Alt+Del捕捉がWindows 11でも機能することを確認（`cadstop`。Win32のフックでは原理的に不可能な動作）。無関係な複数ツール（`x2y`+`cadstop`）を同時にアタッチしても互いに干渉せず動作することも実機確認済み。AutoHotkeyのInterception fork等、本物の消費者アプリでの検証は未実施 |
 | M9 | デバイス数上限（現行20台）の撤廃（将来対応） | 📋 未着手。現行上限のうちキーボード10台は実機で確認済み、マウス10台は検証機材の都合で未確認（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 
 詳細なタスク管理は [Issues](../../issues) / [Projects](../../projects) を参照してください。
@@ -126,12 +126,15 @@ msbuild OpenInputBridge.sln /p:Configuration=Release /p:Platform=x64
 署名・パッケージングの内部的な処理内容（個別のnmakeターゲット等）は `packaging/sign.mak` のコメントを
 参照してください。ロードマップは [ステータス](#ステータス) を参照してください。
 
-### 動作確認（`tests/upstream_lib/`）
+### 動作確認（`tests/upstream_lib/`・`tests/precedence_blackbox/`）
 
-無改変の`third_party/interception/library/interception.c`と、実機での動作確認用サンプル
-（`identify`/`identify2`）も同じ`OpenInputBridge.sln`のDebug/Release構成でビルドされます。
-インストール済みのOpenInputBridgeに対してキーボード/マウスの捕捉・パススルーが実際に機能しているかを
-手元で確認できます。詳細は [`tests/upstream_lib/README.md`](tests/upstream_lib/README.md) を参照してください。
+無改変の`third_party/interception/library/interception.c`と、その全サンプル
+（`identify`/`hardwareid`/`caps2esc`/`axes`/`cadstop`/`mathpointer`/`x2y`）、および実機テスト用に
+自作した`identify2`・`precedence_probe`も、同じ`OpenInputBridge.sln`のDebug/Release構成で
+ビルドされます。インストール済みのOpenInputBridgeに対して、キーボード/マウスの捕捉・
+パススルーはもちろん、実際のキーリマップ・precedenceフックチェーン・Ctrl+Alt+Del捕捉まで
+手元で確認できます。詳細は [`tests/upstream_lib/README.md`](tests/upstream_lib/README.md)・
+[`tests/precedence_blackbox/README.md`](tests/precedence_blackbox/README.md) を参照してください。
 
 ## 貢献
 
