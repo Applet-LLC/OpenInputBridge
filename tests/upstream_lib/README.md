@@ -99,3 +99,27 @@ hardwareid.exe
 実行してキーボード/マウスを操作し、`USB\VID_xxxx&PID_xxxx\...`のような、そのデバイスの実際の
 ハードウェアIDらしき文字列が表示されればM2の合格基準を満たす。空文字列や明らかにおかしい値しか
 出ない場合はドライバ側の`OibCtlHandleGetHardwareId`（`driver/ioctl.c`）を要確認。
+
+## `caps2esc`（M4/M8: 実際のキーリマップ動作の確認）
+
+`identify`/`identify2`/`hardwareid`/`precedence_probe`は、捕捉したストロークを**中身を変えずに
+そのまま**送り返すだけで、いわゆるキーリマップ（捕捉した内容を書き換えてから送り返す）の動作は
+検証していない。`caps2esc`（`third_party/interception/samples/caps2esc/caps2esc.cpp`、無改変）は
+CapsLockとEscapeを入れ替える実際のリマップツールで、この観点の最初のテストになる
+（`CapsToEscSample.vcxproj`でビルド。`Ctrl+CapsLock`の組み合わせも`Ctrl`として機能するよう
+考慮された実装になっている）。
+
+元のサンプルは`UMTYPE=windows`（コンソール無し、タスクマネージャーから終了する想定）でビルドされる
+設計だが、テストツールとして起動確認・終了がしやすいよう、ビルド設定のみ`Console`サブシステムに
+変更している（`caps2esc.cpp`自体は無改変）。
+
+```bat
+cd tests\upstream_lib\x64\Release
+caps2esc.exe
+```
+
+実行した状態でCapsLockキーを押すとEscapeとして機能する（＝ウィンドウを閉じたりできる）ことを
+確認する。逆にEscapeキーを押すとCapsLockとして機能する（＝Caps Lockのオン/オフが切り替わる）ことも
+確認する。`Ctrl`を押しながらCapsLockを押すと、通常の`Ctrl`+何かの組み合わせとして機能することも
+確認するとよい。二重起動防止（`try_open_single_program`）が入っているため、2つ目のプロセスは
+即座に終了する（正常な動作）。終了はコンソールウィンドウを閉じるか`Ctrl+C`。

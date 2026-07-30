@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Builds the UNMODIFIED oblitum/Interceptionライブラリ sample
+third_party/interception/samples/caps2esc/caps2esc.cpp (+ samples/utils.c, both referenced here
+IN PLACE, not copied) into caps2esc.exe — the M4/M8 acceptance test for actual key remapping
+(as opposed to identify/identify2/hardwareid, which only ever send back byte-identical copies
+of what they captured — caps2esc is the first tool in this repo that constructs and sends back
+DIFFERENT stroke content than what it received: CapsLock<->Escape, with a Ctrl-passthrough
+trick for Ctrl+CapsLock combos). See InterceptionLib.vcxproj for why a self-authored vcxproj is
+used instead of the sample's own buildit.cmd. Does not modify caps2esc.cpp/utils.c/utils.h in
+any way — see third_party/README.md and docs/CLEAN_ROOM.md.
+
+One deliberate build-configuration deviation (not a source change): the original sample's own
+sources file builds it UMTYPE=windows (no console, meant to be killed via Task Manager — see
+the comment at the top of caps2esc.cpp). For a test tool that's easier to confirm is running
+and to stop, this project builds it as a Console subsystem app instead via the SubSystem
+setting below; nothing in caps2esc.cpp itself changes.
+
+Structured identically to IdentifySample.vcxproj: shares OutDir with InterceptionLib.vcxproj
+(own IntDir to avoid intermediate collisions), depends on it only for build ordering, and is
+dev/test tooling only — included in OpenInputBridge.sln's Debug/Release configurations, not
+ReleaseWHQL, never touched by packaging/sign.mak.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{4F8A2E6C-1D9B-4C7A-8E3F-2B6D9A4C7E15}</ProjectGuid>
+    <RootNamespace>CapsToEscSample</RootNamespace>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- Deliberately the SAME OutDir as InterceptionLib.vcxproj — see IdentifySample.vcxproj's
+         identical note. -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <TargetName>caps2esc</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <AdditionalIncludeDirectories>..\..\third_party\interception\library;..\..\third_party\interception\samples;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <!-- Console, not the sample's own UMTYPE=windows — see header comment. -->
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>interception.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\third_party\interception\samples\caps2esc\caps2esc.cpp" />
+    <ClCompile Include="..\..\third_party\interception\samples\utils.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\third_party\interception\samples\utils.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="InterceptionLib.vcxproj">
+      <Project>{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
