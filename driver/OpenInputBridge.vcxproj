@@ -127,17 +127,18 @@ added later following the same sample's pattern.
       reproducible (the .inf's content doesn't depend on which day it happened to be built).
       Bump this if it ever again trips a "postdated DriverVer" failure.
     -->
-    <Inf Exclude="@(Inf)" Include="*.inf;*.inx">
+    <Inf Include="OpenInputBridge.inx">
       <SpecifyDriverVerDirectiveDate>true</SpecifyDriverVerDirectiveDate>
       <DateStamp>01/01/2026</DateStamp>
     </Inf>
     <FilesToPackage Include="$(TargetPath)" Condition="'$(ConfigurationType)'=='Driver' or '$(ConfigurationType)'=='DynamicLibrary'" />
   </ItemGroup>
   <ItemGroup>
-    <None Exclude="@(None)" Include="*.txt;*.htm;*.html" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Exclude="@(ClInclude)" Include="*.h;*.hpp;*.hxx;*.hm;*.inl;*.xsd" />
+    <ClInclude Include="driver.h" />
+    <ClInclude Include="ioctl.h" />
+    <ClInclude Include="kbdfilter.h" />
+    <ClInclude Include="mousefilter.h" />
+    <ClInclude Include="slots.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
