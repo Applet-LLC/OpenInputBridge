@@ -149,10 +149,25 @@ cd tests\upstream_lib\x64\Release
 cadstop.exe
 ```
 
-実行した状態でCtrl+Alt+Delを押し、通常のセキュリティ画面（Windowsのロック画面等）が
+実行した状態で**左**Ctrl+左Alt+Delを押し、通常のセキュリティ画面（Windowsのロック画面等）が
 **出ない**ことを確認する（＝捕捉できている証拠）。コンソールに`ctrl-alt-del pressed`と
 表示されることも合わせて確認する。念のため: 何か問題があっても実害はなく、コンソール
 ウィンドウを閉じれば通常通りCtrl+Alt+Delが機能する状態に戻る。
+
+**重要: 右Ctrl/右Altでは機能しない（無改変のサンプル自体の制約、ドライバ側の問題ではない）**。
+`cadstop.cpp`はCtrl/Altのスキャンコードを左側のみ（`scancode::ctrl=0x1D`, `scancode::alt=0x38`、
+いずれもE0フラグ無し）でハードコードしており、右Ctrl/右Alt（内部的にE0フラグ付きの別コード扱い）
+は一切考慮していない。実機テストでは、右Ctrl+右Altでは`ctrl-alt-del pressed`が一度も表示されず
+（＝サンプル側の状態マシンが一致判定できていない）、左Ctrl+左Altに変えたところ問題なく捕捉・
+ブロックできることを確認した。
+
+この実機テストにより2点が確認できた。
+
+- `INTERCEPTION_FILTER_KEY_ALL`によるE0ビットを含む広範なフィルタ照合は正しく機能している
+  （`identify2.exe`で右Ctrl/右Alt/Deleteキーの`state`にE0フラグが正確に付与されていることを
+  別途確認済み）
+- kbdclassより下でのCtrl+Alt+Del（SAS）ブロックは、Windows 11上でも実際に機能する
+  （＝Win32のフックでは原理的にできないことが、このアーキテクチャでは可能）
 
 ## `mathpointer`（絶対座標・高頻度連続WRITEのテスト）
 

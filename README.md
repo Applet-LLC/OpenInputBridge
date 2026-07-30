@@ -31,7 +31,7 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 | M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 完了・実機テスト済み。`tests/precedence_blackbox/`の`precedence_probe`による複数プロセス同時アタッチの実機テストで、配送順序・チェーン継続・捕捉による遮断・同precedenceでのアタッチ順タイブレークすべて想定通りと確認済み。フィルタのビット照合規則自体は引き続き実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 | M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了・実機テスト済み（インストール/アンインストール/再起動サイクル、サービス登録、UpperFilters順序を確認） |
 | M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKテストを実施しWHQL署名の取得を目指す |
-| M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)のサンプルでM0/M2/M3/M4の基本動作は実機確認済みだが、AutoHotkeyのInterception fork等、実際の消費者アプリでの検証は未実施 |
+| M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)のサンプル（`identify`/`identify2`/`hardwareid`/`caps2esc`/`axes`/`cadstop`/`mathpointer`）でM0/M2/M3/M4の基本動作・実際のキーリマップ（キーボード/マウス双方）・`INTERCEPTION_FILTER_KEY_ALL`での広範なフィルタ照合・絶対座標指定と高頻度連続WRITEまで実機確認済み。特にkbdclassより下でのCtrl+Alt+Del捕捉がWindows 11でも機能することを確認（`cadstop`。Win32のフックでは原理的に不可能な動作）。AutoHotkeyのInterception fork等、実際の消費者アプリでの検証は未実施 |
 | M9 | デバイス数上限（現行20台）の撤廃（将来対応） | 📋 未着手。現行上限のうちキーボード10台は実機で確認済み、マウス10台は検証機材の都合で未確認（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 
 詳細なタスク管理は [Issues](../../issues) / [Projects](../../projects) を参照してください。
