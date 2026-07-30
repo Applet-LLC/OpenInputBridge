@@ -9,6 +9,9 @@
 #include "mousefilter.h"
 #include "ioctl.h"
 
+// See kbdfilter.c's OibKbdEvtDeviceAdd for why this function (and OibMouEvtFilterDeviceCleanup
+// below) must not be marked pageable via #pragma alloc_text(PAGE, ...) without first splitting
+// the OibSlotAssign/OibSlotRelease spinlock section into a separate non-paged function.
 NTSTATUS
 OibMouEvtDeviceAdd(
     _In_ WDFDRIVER Driver,

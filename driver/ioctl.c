@@ -231,6 +231,18 @@ OibCtlHandleWrite(
         // slot currently has a physical device assigned.
         if (NT_SUCCESS(filterDeviceStatus)) {
             ULONG consumed = 0;
+            KIRQL oldIrql;
+
+            // A real hardware-driven stroke only ever reaches ClassService from the port
+            // driver's ISR-associated DPC, i.e. at DISPATCH_LEVEL (see kbdfilter.c's
+            // OibKbFilterServiceCallback / mousefilter.c's OibMouFilterServiceCallback, which
+            // inherit that IRQL from their caller and pass strokes through unchanged). This
+            // call site is instead reached from an IOCTL_WRITE handler running at
+            // PASSIVE_LEVEL, so raise IRQL to match before calling ClassService — downstream
+            // consumers (kbdclass, win32k's Raw Input Manager) are only ever exercised at
+            // DISPATCH_LEVEL in practice and may rely on that even though nothing documents it
+            // as a hard requirement.
+            KeRaiseIrql(DISPATCH_LEVEL, &oldIrql);
 
             if (ctlContext->IsKeyboard) {
                 POIB_KBD_FILTER_CONTEXT kbdContext = OibGetKbdFilterContext(filterDevice);
@@ -265,6 +277,8 @@ OibCtlHandleWrite(
 #pragma warning(pop)
                 }
             }
+
+            KeLowerIrql(oldIrql);
         }
 
         deliveredCount++;

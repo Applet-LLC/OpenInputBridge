@@ -133,6 +133,13 @@ typedef struct _MOUSE_INPUT_DATA
   より下位のprecedenceチェーンへレコード単位で再投入する。チェーン上のいずれかのインスタンスのフィルタに
   一致すればそこで再度捕捉され、どこにも一致しなければ実際の入力ストリームへ届く。合成入力の注入と、
   `IOCTL_READ`で捕捉したストロークの解放は、同じ経路（このチェーン再投入）で扱われる。
+  **実装上の注記**: チェーンの末尾まで落ちて実際の`ClassService`を直接呼ぶ経路
+  （`driver/ioctl.c`の`OibCtlHandleWrite`）は、`KeRaiseIrql(DISPATCH_LEVEL, ...)`で明示的に
+  IRQLを上げてから呼び出す。実ハードウェア経由の呼び出し（`kbdfilter.c`/`mousefilter.c`の
+  `ServiceCallback`、ポートドライバのISR紐付きDPCから呼ばれるため常にDISPATCH_LEVEL）と
+  IRQLを揃えるための対応で、`kbdclass`/win32kのRaw Input Managerが「呼び出しは必ず
+  DISPATCH_LEVEL」という暗黙の前提を置いている可能性を考慮している（[docs/DECISIONS.md](DECISIONS.md)
+  の2026-07-30付エントリ参照）。
 - **`IOCTL_GET_HARDWARE_ID`**: 出力バッファに、下位デバイス(PDO)のハードウェアIDプロパティ文字列
   （`IoGetDeviceProperty(DevicePropertyHardwareID, ...)`）を呼び出し元バッファサイズに収まる範囲で返す。
   **注意: この文字列はメーカー/型番レベルの識別情報であり、個体固有のIDではない**。全く同じ製品

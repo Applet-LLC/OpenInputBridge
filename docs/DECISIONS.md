@@ -93,3 +93,40 @@ HLK/WHQL認定の方針（`README.md`のM7参照）でも、「HLKの試験要�
 分割は相応の作業量（ドライバプロジェクト構成・INF・インストーラ・パッケージングの見直し）を
 伴うため、今すぐには着手せず、HLK提出の判断と合わせて改めて検討する。それまでは
 `Class=System`のまま現状維持とする。
+
+---
+
+## 2026-07-30: 別プロジェクト（nodokad2、WHQL署名取得済み）のエージェントによるコードレビュー
+
+Applet LLCの別のキーボードフィルタドライバプロジェクト`nodokad2`（`C:\Users\applet\Documents\
+GitHub\nodoka\nodoka\d2`、WHQL署名取得済み）を開発しているエージェントに、OpenInputBridgeの
+ドライバコードを比較レビューしてもらい、2点の助言を得た。
+
+### ① IOCTL_WRITE経路でClassServiceをPASSIVE_LEVELのまま直接呼んでいた（対応済み）
+
+`driver/ioctl.c`の`OibCtlHandleWrite`は、チェーンを最後まで落ちたストロークを実際の
+`ClassService`（kbdclass/mouclassの本来のコールバック）に直接届けるが、この呼び出しは
+IOCTLハンドラのコンテキスト＝**PASSIVE_LEVEL**で行われていた。一方、実ハードウェア経由の
+呼び出し（`kbdfilter.c`/`mousefilter.c`の`ServiceCallback`経由）は、ポートドライバの
+ISR紐付きDPCから呼ばれるため常に**DISPATCH_LEVEL**である。`kbdclass`やwin32kのRaw Input
+Managerが「実ハードウェア経由の呼び出しは必ずDISPATCH_LEVELである」という暗黙の前提を
+どこかで置いている可能性があり、`nodokad2`は同種の直接呼び出し（INJECT経路）の前に
+明示的に`KeRaiseIrql(DISPATCH_LEVEL, &old)`している。
+
+対応: `OibCtlHandleWrite`の`ClassService`呼び出し（キーボード・マウス両方）を
+`KeRaiseIrql(DISPATCH_LEVEL, &oldIrql)` / `KeLowerIrql(oldIrql)`で挟むように修正した。
+
+### ② PAGEDコード＋スピンロックの陥穽（現状は該当しないが将来の注意点として記録）
+
+`nodokad2`はHLKテストで3回連続BSOD（IRQL_NOT_LESS_OR_EQUAL, 0xd1）を経験した。原因は
+`EvtDeviceAdd`/`EvtFilterCleanup`を`#pragma alloc_text(PAGE, ...)`でページアウト対象に
+したまま、その中でスピンロック保持中（＝DISPATCH_LEVEL中）に`InsertTailList`等を実行して
+いたこと。スピンロック保持中にコード自体がページアウトされていると、命令フェッチ自体が
+ページフォールトを起こし、DISPATCH_LEVEL以上でのページフォールトは即BSODになる。
+
+OpenInputBridgeの`driver/*.c`には現状`alloc_text`が一切無く、該当しないことを確認済み。
+ただし将来パフォーマンス最適化等で`OibKbdEvtDeviceAdd`/`OibMouEvtDeviceAdd`や
+`OibKbdEvtFilterDeviceCleanup`/`OibMouEvtFilterDeviceCleanup`を`PAGE`指定する場合は、
+`OibSlotAssign`/`OibSlotRelease`（スピンロック区間）を非ページの別関数に切り出す必要がある。
+`driver/kbdfilter.c`・`driver/mousefilter.c`の該当関数に、この注意点をコメントとして
+残している。

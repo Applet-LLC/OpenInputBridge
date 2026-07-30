@@ -9,6 +9,14 @@
 #include "kbdfilter.h"
 #include "ioctl.h"
 
+// Do not mark this function (or OibKbdEvtFilterDeviceCleanup below) pageable via
+// #pragma alloc_text(PAGE, ...) without first moving the OibSlotAssign/OibSlotRelease calls
+// (which acquire slots.c's spinlock and, transitively, InsertTailList/RemoveEntryList) into a
+// separate non-paged function. A sibling Applet LLC keyboard filter driver (nodokad2) hit three
+// consecutive HLK BSODs (IRQL_NOT_LESS_OR_EQUAL, 0xd1) from exactly this: paged code executing
+// while a spinlock held it at DISPATCH_LEVEL faulted on its own paged-out instruction stream,
+// which can only be serviced below DISPATCH_LEVEL. Not applicable today (nothing in this
+// driver uses alloc_text), but keep it that way, or split the locking out first.
 NTSTATUS
 OibKbdEvtDeviceAdd(
     _In_ WDFDRIVER Driver,
