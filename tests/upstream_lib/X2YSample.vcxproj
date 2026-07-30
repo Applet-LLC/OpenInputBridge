@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Builds the UNMODIFIED oblitum/Interceptionライブラリ sample
+third_party/interception/samples/x2y/x2y.cpp (+ samples/utils.c, both referenced here IN
+PLACE, not copied) into x2y.exe — remaps the X key to Y. The simplest possible keyboard
+content-modifying remap (a single scan-code substitution, no state machine), rounding out
+tests/upstream_lib/ to cover every sample under third_party/interception/samples/. See
+InterceptionLib.vcxproj for why a self-authored vcxproj is used instead of the sample's own
+buildit.cmd. Does not modify x2y.cpp/utils.c/utils.h in any way — see third_party/README.md
+and docs/CLEAN_ROOM.md.
+
+Structured identically to IdentifySample.vcxproj: shares OutDir with InterceptionLib.vcxproj
+(own IntDir to avoid intermediate collisions), depends on it only for build ordering, and is
+dev/test tooling only — included in OpenInputBridge.sln's Debug/Release configurations, not
+ReleaseWHQL, never touched by packaging/sign.mak.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{D7A2C5E9-3B6F-4D8A-9C1E-6B4F2A7D3C58}</ProjectGuid>
+    <RootNamespace>X2YSample</RootNamespace>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- Deliberately the SAME OutDir as InterceptionLib.vcxproj — see IdentifySample.vcxproj's
+         identical note. -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <TargetName>x2y</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <AdditionalIncludeDirectories>..\..\third_party\interception\library;..\..\third_party\interception\samples;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>interception.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\third_party\interception\samples\x2y\x2y.cpp" />
+    <ClCompile Include="..\..\third_party\interception\samples\utils.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\third_party\interception\samples\utils.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="InterceptionLib.vcxproj">
+      <Project>{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

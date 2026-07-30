@@ -55,6 +55,11 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MathPointerSample", "tests\
 		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34} = {7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}
 	EndProjectSection
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "X2YSample", "tests\upstream_lib\X2YSample.vcxproj", "{D7A2C5E9-3B6F-4D8A-9C1E-6B4F2A7D3C58}"
+	ProjectSection(ProjectDependencies) = postProject
+		{7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34} = {7C3B9E2F-4A1D-4E6C-8B5F-9D2A6C8E1B34}
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -124,6 +129,11 @@ Global
 		{C5F8B2E4-7A1D-4C3F-9E6B-4D2A7C5F8B16}.Release|x64.ActiveCfg = Release|x64
 		{C5F8B2E4-7A1D-4C3F-9E6B-4D2A7C5F8B16}.Release|x64.Build.0 = Release|x64
 		{C5F8B2E4-7A1D-4C3F-9E6B-4D2A7C5F8B16}.ReleaseWHQL|x64.ActiveCfg = Release|x64
+		{D7A2C5E9-3B6F-4D8A-9C1E-6B4F2A7D3C58}.Debug|x64.ActiveCfg = Debug|x64
+		{D7A2C5E9-3B6F-4D8A-9C1E-6B4F2A7D3C58}.Debug|x64.Build.0 = Debug|x64
+		{D7A2C5E9-3B6F-4D8A-9C1E-6B4F2A7D3C58}.Release|x64.ActiveCfg = Release|x64
+		{D7A2C5E9-3B6F-4D8A-9C1E-6B4F2A7D3C58}.Release|x64.Build.0 = Release|x64
+		{D7A2C5E9-3B6F-4D8A-9C1E-6B4F2A7D3C58}.ReleaseWHQL|x64.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
