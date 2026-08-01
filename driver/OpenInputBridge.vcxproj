@@ -119,6 +119,9 @@ added later following the same sample's pattern.
     <ClCompile Include="slots.c" />
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="OpenInputBridge.rc" />
+  </ItemGroup>
+  <ItemGroup>
     <!--
       Pinned DateStamp rather than the WDK default of "*" (today's date): Inf2Cat's
       "Signability test" rejects a DriverVer date it considers postdated relative to this
