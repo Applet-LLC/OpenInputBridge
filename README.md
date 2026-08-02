@@ -32,7 +32,7 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 | M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了・実機テスト済み（インストール/アンインストール/再起動サイクル、サービス登録、UpperFilters順序を確認） |
 | M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKでSystemクラス扱い（69件のテスト対象）と判明したため、キーボード用（`keyboard.sys`）・マウス用（`mouse.sys`）の2ドライバに分割済み（[`docs/DECISIONS.md`](docs/DECISIONS.md)の2026-08-01付エントリ参照）。分割後のHLK再提出は未実施 |
 | M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)に、`third_party/interception/samples/`配下の全サンプル（`identify`/`hardwareid`/`caps2esc`/`axes`/`cadstop`/`mathpointer`/`x2y`）と自作の`identify2`をビルドするプロジェクトを用意し、M0/M2/M3/M4の基本動作・実際のキーリマップ（キーボード/マウス双方）・`INTERCEPTION_FILTER_KEY_ALL`での広範なフィルタ照合・絶対座標指定と高頻度連続WRITEまで実機確認済み。特にkbdclassより下でのCtrl+Alt+Del捕捉がWindows 11でも機能することを確認（`cadstop`。Win32のフックでは原理的に不可能な動作）。無関係な複数ツール（`x2y`+`cadstop`）を同時にアタッチしても互いに干渉せず動作することも実機確認済み。AutoHotkeyのInterception fork等、本物の消費者アプリでの検証は未実施 |
-| M9 | デバイス数上限（現行20台）の撤廃（将来対応） | 📋 未着手。現行上限のうちキーボード10台は実機で確認済み、マウス10台は検証機材の都合で未確認（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
+| M9 | デバイス総数上限（現行20台）の撤廃（将来対応） | 📋 未着手。20台のうちキーボード/マウスへの**配分比率**は`KeyboardSlotCount`で可変にできるようになりました（2026-08-02、[docs/DECISIONS.md](docs/DECISIONS.md)参照）が、これはM9とは別物で、合計20台という上限そのものはまだ撤廃していません。現行上限のうちキーボード10台は実機で確認済み、マウス10台は検証機材の都合で未確認（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 
 詳細なタスク管理は [Issues](../../issues) / [Projects](../../projects) を参照してください。
 
@@ -42,9 +42,10 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 - KMDF（Kernel-Mode Driver Framework）ベースのフィルタドライバ。キーボード用（`keyboard.sys`, `Class=Keyboard`）・マウス用（`mouse.sys`, `Class=Mouse`）の2バイナリで構成（`driver/common/`の共通ロジックを両方から参照）
 - それぞれ対応するデバイスクラススタックに上位フィルタとしてアタッチし、`IOCTL_INTERNAL_*_CONNECT` によるクラスサービスコールバックの差し替えで入力を捕捉/再注入
-- 物理デバイスの有無によらず常時20個（キーボード×10、マウス×10）のコントロールデバイスを公開し、上位のユーザーモードライブラリとの互換性を維持
+- 物理デバイスの有無によらず常時20個のコントロールデバイスを公開し、上位のユーザーモードライブラリとの互換性を維持。既定ではキーボード×10・マウス×10だが、この配分は`KeyboardSlotCount`レジストリ値（インストーラの`--slots=N`）で変更可能（詳細は[インストール](#インストール)・[`docs/PROTOCOL.md`](docs/PROTOCOL.md)参照）
+- 新規クライアントが実際の配分やOpenInputBridge自体の識別を確認できるよう、`IOCTL_GET_KEYBOARD_SLOT_COUNT`/`IOCTL_GET_DRIVER_IDENTITY`という独自拡張IOCTLも用意（[`docs/PROTOCOL.md`](docs/PROTOCOL.md)参照）
 - 詳細なプロトコル仕様は [`docs/PROTOCOL.md`](docs/PROTOCOL.md) を参照
-- 互換性のため当面はoblitum/Interceptionライブラリの仕様どおりキーボード10台・マウス10台（計20デバイス）が上限ですが、将来的には既存クライアントとの後方互換を保ったまま、この上限を撤廃する拡張を計画しています
+- 互換性のため当面はoblitum/Interceptionライブラリの仕様どおり計20デバイス（上記の配分次第でキーボード/マウスそれぞれ最大20台）が上限ですが、将来的には既存クライアントとの後方互換を保ったまま、この総数の上限を撤廃する拡張を計画しています
 
 ## ライセンスと配布方針
 

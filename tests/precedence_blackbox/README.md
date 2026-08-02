@@ -15,7 +15,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 ## `precedence_probe`（OpenInputBridge自身に対するM5実機テスト）
 
 上記は実物ドライバに対する仕様確認用だが、`precedence_probe.cpp`（自作・MITライセンス）は
-**OpenInputBridge自身**の precedence フックチェーン実装（`driver/ioctl.c`の
+**OpenInputBridge自身**の precedence フックチェーン実装（`driver/common/ioctl.c`の
 `OibFindNextChainRecipient`/`OibIsHigherPriority`/`OibCtlHandleWrite`）を実機検証するための
 対話式ツール。無改変の`interception.h`/`interception.dll`を使う点は`tests/upstream_lib/`の
 サンプル群と同じ（`PrecedenceProbe.vcxproj`参照）。
@@ -94,6 +94,6 @@ precedence_probe.exe <precedence> [--consume]
    修正した上で確認したところ、常にAが先に表示された（`OibIsHigherPriority`の
    `AttachSequence`比較が正しく機能している）。
 
-`driver/ioctl.c`のprecedenceフックチェーン実装（`OibFindNextChainRecipient`/
+`driver/common/ioctl.c`のprecedenceフックチェーン実装（`OibFindNextChainRecipient`/
 `OibIsHigherPriority`/`OibCtlHandleWrite`）は、配送順序・チェーン継続・捕捉遮断・
 同precedenceのタイブレークいずれも実機で確認済み。

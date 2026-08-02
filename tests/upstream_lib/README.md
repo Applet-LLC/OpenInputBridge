@@ -45,7 +45,7 @@ Windows SDK単体では解決できないため。ビルドされる `intercepti
 
 事前に、対象マシンにOpenInputBridgeドライバがインストール・再起動済みであること（`sc.exe query
 OpenInputBridge`でSTATE:RUNNINGを確認）。管理者権限は不要（コントロールデバイスのSDDLは
-Everyoneに読み書きを許可している。`driver/driver.c`の`OibControlDeviceSddl`参照）。
+Everyoneに読み書きを許可している。`driver/common/driver.c`の`OibControlDeviceSddl`参照）。
 
 ```bat
 cd tests\upstream_lib\x64\Release
@@ -98,7 +98,7 @@ hardwareid.exe
 
 実行してキーボード/マウスを操作し、`USB\VID_xxxx&PID_xxxx\...`のような、そのデバイスの実際の
 ハードウェアIDらしき文字列が表示されればM2の合格基準を満たす。空文字列や明らかにおかしい値しか
-出ない場合はドライバ側の`OibCtlHandleGetHardwareId`（`driver/ioctl.c`）を要確認。
+出ない場合はドライバ側の`OibCtlHandleGetHardwareId`（`driver/common/ioctl.c`）を要確認。
 
 ## `caps2esc`（M4/M8: 実際のキーリマップ動作の確認）
 

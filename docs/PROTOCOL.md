@@ -50,7 +50,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 上限値そのものの実機検証タスクとして残る）。
 
 **デバイス番号は物理デバイスに固定で結びついた恒久的なIDではない**: どの物理キーボード/マウスが
-どの番号（スロット）に割り当てられるかは、`driver/slots.c`の`OibSlotAssign`がPnPでの**接続順**に
+どの番号（スロット）に割り当てられるかは、`driver/common/slots.c`の`OibSlotAssign`がPnPでの**接続順**に
 その時点で空いている番号を割り当てるだけで決まる。ハードウェアID等の内容による突き合わせは一切
 行っていない。したがって、
 
@@ -126,10 +126,10 @@ typedef struct _MOUSE_INPUT_DATA
   **実装上の注記（M3実装済み、要検証）**: どのビットが立っていればストロークを捕捉するかの正確な照合規則
   （キーボードの `INTERCEPTION_FILTER_KEY_E0`等がrawフラグから1ビット左シフトした位置にある、等）は、
   公開ヘッダ `interception.h` の enum 定義の構造から機械的に導出した最善推測であり、実物ドライバの挙動で
-  確認したものではない（`driver/ioctl.c` の `OibComputeKeyboardRequiredFilterBits` /
+  確認したものではない（`driver/common/ioctl.c` の `OibComputeKeyboardRequiredFilterBits` /
   `OibComputeMouseRequiredFilterBits` 参照）。precedenceと同様、M5でのブラックボックス検証対象。
   ビット値そのものとは別に、候補インスタンスの`Filter`とストロークの要求ビット列（`RequiredFilterBits`）の
-  照合方式（`driver/ioctl.c`の`OibFindNextChainRecipient`）は、**一部重複（overlap）で一致**とする
+  照合方式（`driver/common/ioctl.c`の`OibFindNextChainRecipient`）は、**一部重複（overlap）で一致**とする
   （supersetを要求しない）。キーボードは1ストロークにつき要求ビットが常に単一（DOWN xor UP）なので
   overlapとsupersetは等価だが、マウスは1レコードに複数の要求ビットが同時に立ちうる
   （ボタン遷移と`INTERCEPTION_FILTER_MOUSE_MOVE`合成ビットが同一パケットに同時に現れるのが実運用では
@@ -140,7 +140,7 @@ typedef struct _MOUSE_INPUT_DATA
   フックしている場合の優先順位。
   **実装上の注記（M5実装済み）**: precedenceは「一致した全インスタンスへの独立コピー配送」ではなく、
   **precedenceが高い順に直列に処理を引き渡すフックチェーン**として実装している
-  （`driver/ioctl.c` の `OibFindNextChainRecipient`）。フィルタが一致したオープンインスタンスのうち
+  （`driver/common/ioctl.c` の `OibFindNextChainRecipient`）。フィルタが一致したオープンインスタンスのうち
   チェーン上で最も上位（precedence最大、同値ならアタッチが早い方）の1つだけが捕捉し、そのインスタンスが
   `IOCTL_WRITE` で送り返すまで他のインスタンスにもハードウェアにも渡らない。送り返された内容は
   「送り主より下位」のチェーン位置から再評価され、それも捕捉されなければ実際の入力ストリームへ届く
@@ -156,8 +156,8 @@ typedef struct _MOUSE_INPUT_DATA
   一致すればそこで再度捕捉され、どこにも一致しなければ実際の入力ストリームへ届く。合成入力の注入と、
   `IOCTL_READ`で捕捉したストロークの解放は、同じ経路（このチェーン再投入）で扱われる。
   **実装上の注記**: チェーンの末尾まで落ちて実際の`ClassService`を直接呼ぶ経路
-  （`driver/ioctl.c`の`OibCtlHandleWrite`）は、`KeRaiseIrql(DISPATCH_LEVEL, ...)`で明示的に
-  IRQLを上げてから呼び出す。実ハードウェア経由の呼び出し（`kbdfilter.c`/`mousefilter.c`の
+  （`driver/common/ioctl.c`の`OibCtlHandleWrite`）は、`KeRaiseIrql(DISPATCH_LEVEL, ...)`で明示的に
+  IRQLを上げてから呼び出す。実ハードウェア経由の呼び出し（`driver/keyboard/kbdfilter.c`/`driver/mouse/mousefilter.c`の
   `ServiceCallback`、ポートドライバのISR紐付きDPCから呼ばれるため常にDISPATCH_LEVEL）と
   IRQLを揃えるための対応で、`kbdclass`/win32kのRaw Input Managerが「呼び出しは必ず
   DISPATCH_LEVEL」という暗黙の前提を置いている可能性を考慮している（[docs/DECISIONS.md](DECISIONS.md)

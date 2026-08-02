@@ -103,8 +103,7 @@ Systemクラス向けの広範なテスト一式が(キーボード/マウスフ
 keyboard`方式、本番稼働中）に倣い、`OpenInputBridgeSetup.exe`1本のまま引数でドライバ種別を
 切り替える形にし、`ModifyUpperFilters`による手動UpperFilters編集はそのまま流用した
 （`kbdaddid`/`mouaddid`のINFにある宣言型`AddFilter`は、実際のインストーラでは使われておらず
-採用しなかった）。詳細はplan `glowing-floating-pelican`参照。実際にHLKへ再提出してテスト件数が
-減るかどうかの確認はフォローアップ。
+採用しなかった）。実際にHLKへ再提出してテスト件数が減るかどうかの確認はフォローアップ。
 
 ---
 
@@ -218,5 +217,3 @@ OpenInputBridgeの`driver/*.c`には現状`alloc_text`が一切無く、該当�
 将来ズレないよう、両方が参照する`driver/common/version.h`を新設して一元化した
 （リソースコンパイラが`ntddk.h`/`wdf.h`を読み込まずに済むよう、`driver.h`とは独立した
 依存の無い小さいヘッダにした）。
-
-詳細はplan `glowing-floating-pelican`参照。
