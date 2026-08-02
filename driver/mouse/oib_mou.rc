@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// Version resource for keyboard.sys, so Device Manager's driver file details show a version
+// Version resource for oib_mou.sys, so Device Manager's driver file details show a version
 // instead of a blank field. Fixed at 1.00 deliberately independent of the .inf's DriverVer
-// stamp (keyboard.inx) — the two numbers serve different purposes (this is the binary's own
+// stamp (oib_mou.inx) — the two numbers serve different purposes (this is the binary's own
 // version; DriverVer is what Windows uses for driver ranking/update comparisons) and are not
 // meant to track each other.
 
@@ -18,18 +18,18 @@ VS_VERSION_INFO VERSIONINFO
  FILEFLAGS 0x0L
  FILEOS VOS_NT_WINDOWS32
  FILETYPE VFT_DRV
- FILESUBTYPE VFT2_DRV_KEYBOARD
+ FILESUBTYPE VFT2_DRV_MOUSE
 BEGIN
     BLOCK "StringFileInfo"
     BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName",      "OpenInputBridge Contributors"
-            VALUE "FileDescription",  "OpenInputBridge Keyboard Filter Driver"
+            VALUE "FileDescription",  "OpenInputBridge Mouse Filter Driver"
             VALUE "FileVersion",      OIB_VERSION_STRING
-            VALUE "InternalName",     "keyboard.sys"
+            VALUE "InternalName",     "oib_mou.sys"
             VALUE "LegalCopyright",   "Copyright (c) 2026 OpenInputBridge Contributors"
-            VALUE "OriginalFilename", "keyboard.sys"
+            VALUE "OriginalFilename", "oib_mou.sys"
             VALUE "ProductName",      "OpenInputBridge"
             VALUE "ProductVersion",   OIB_VERSION_STRING
         END

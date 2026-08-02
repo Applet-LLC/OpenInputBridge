@@ -15,13 +15,13 @@ namespace OpenInputBridge {
 const DriverInfo& GetDriverInfo(DriverType type)
 {
     static const DriverInfo kKeyboard = {
-        L"keyboard",
+        L"oib_kbd",
         L"OpenInputBridgeKeyboard",
         L"{4D36E96B-E325-11CE-BFC1-08002BE10318}",
         L"kbdclass",
     };
     static const DriverInfo kMouse = {
-        L"mouse",
+        L"oib_mou",
         L"OpenInputBridgeMouse",
         L"{4D36E96F-E325-11CE-BFC1-08002BE10318}",
         L"mouclass",

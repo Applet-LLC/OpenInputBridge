@@ -8,8 +8,8 @@
 // SetupInstallServicesFromInfSectionW to actually create the
 // SERVICE_KERNEL_DRIVER/SERVICE_SYSTEM_START service (DiInstallDriverW alone only stages the
 // package — see common.h for why), then registers the driver as an upper filter positioned
-// immediately before its class driver (kbdclass/mouclass). See driver/keyboard/keyboard.inx,
-// driver/mouse/mouse.inx, and docs/PROTOCOL.md.
+// immediately before its class driver (kbdclass/mouclass). See driver/keyboard/oib_kbd.inx,
+// driver/mouse/oib_mou.inx, and docs/PROTOCOL.md.
 
 #include "common.h"
 

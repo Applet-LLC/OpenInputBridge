@@ -5,45 +5,55 @@
 ; Primitive driver INF (Windows 10 1903+; see
 ; https://learn.microsoft.com/windows-hardware/drivers/develop/creating-a-primitive-driver):
 ; installed/uninstalled via DiInstallDriver/DiUninstallDriver (installer/), not matched to any
-; hardware ID. [DefaultInstall.NTamd64] stages mouse.sys into the driver store and registers
+; hardware ID. [DefaultInstall.NTamd64] stages oib_kbd.sys into the driver store and registers
 ; it as a SERVICE_KERNEL_DRIVER/SERVICE_SYSTEM_START service (see docs/PROTOCOL.md for why
 ; boot-early start matters here).
 ;
-; Mouse half of the former single-binary OpenInputBridge.sys/Class=System driver (see
-; docs/DECISIONS.md's 2026-07-30 entry): declaring Class=Mouse here (instead of System) is the
-; whole point of the split — it's what makes `pnputil /enum-drivers /class mouse` show this
-; package, and is expected to steer HLK toward the mouse-filter-appropriate test selection
-; instead of the much larger generic System-class set. keyboard.inx is the Keyboard-class
+; Keyboard half of the former single-binary OpenInputBridge.sys/Class=System driver (see
+; docs/DECISIONS.md's 2026-07-30 entry): declaring Class=Keyboard here (instead of System) is
+; the whole point of the split — it's what makes `pnputil /enum-drivers /class keyboard` show
+; this package, and is expected to steer HLK toward the keyboard-filter-appropriate test
+; selection instead of the much larger generic System-class set. oib_mou.inx is the Mouse-class
 ; counterpart; the two are independent packages/services (installer/), not one INF trying to
 ; cover both classes (which Class's single-value-per-INF limit doesn't allow).
+;
+; Named oib_kbd rather than the more obvious "keyboard": every Windows install already carries
+; an inbox driver package literally named keyboard.inf (the stock PS/2 keyboard class
+; installer, %windir%\inf\keyboard.inf), staged in the Driver Store as
+; keyboard.inf_<hash>\keyboard.inf alongside whatever we'd stage under the same base name. A
+; naive same-named search for "our" staged keyboard.inf_* (installer/install.cpp's
+; FindStagedInfPath) can then match either one, causing
+; SetupInstallServicesFromInfSectionW to fail against the wrong INF's layout
+; (ERROR_SECTION_NOT_FOUND) — confirmed on a real HLK test client (see docs/DECISIONS.md's
+; 2026-08-02 entry, second one). A distinctive base name avoids the collision entirely.
 ;
 ; No [Manufacturer] section: its presence — even empty — makes InfVerif treat this as a
 ; (broken) PnP-match INF instead ("error 1297: Device driver does not install on any devices,
 ; use primitive driver if this is intended"), which is exactly what led to this design. The
-; sibling Applet LLC mouaddid.inf (production, WHQL-signed) proves this combination — primitive
-; driver structure with Class=Mouse — passes InfVerif/Inf2Cat.
+; sibling Applet LLC kbdaddid.inf (production, WHQL-signed) proves this combination — primitive
+; driver structure with Class=Keyboard — passes InfVerif/Inf2Cat.
 ;
 ; No [DefaultUninstall] section: DiUninstallDriver reverses [DefaultInstall.NTamd64]'s actions
 ; automatically — an explicit uninstall section is neither required nor wanted for a primitive
 ; driver (see the Microsoft doc above, "レガシ互換性").
 ;
-; Deliberately does NOT AddReg the Mouse device setup class's UpperFilters here: InfVerif's
+; Deliberately does NOT AddReg the Keyboard device setup class's UpperFilters here: InfVerif's
 ; DCH-compliance rule (required for primitive drivers, "error 1321: Registry root ... is not
 ; isolated to HKR") forbids an INF from writing to an absolute registry path outside the
 ; driver's own HKR-relative scope — and a primitive driver, having no matched device, has no
 ; HKR context to be relative to in the first place. Registering as a *class-level* upper filter
-; (affecting every mouse system-wide, not one matched device) is exactly the kind of
+; (affecting every keyboard system-wide, not one matched device) is exactly the kind of
 ; system-wide side effect DCH isolation exists to prevent doing declaratively from an INF. So
 ; that step stays in installer/ as a direct registry-API call, done alongside (not instead of)
 ; DiInstallDriver/DiUninstallDriver — see installer/common.cpp.
 
 [Version]
 Signature   = "$WINDOWS NT$"
-Class       = Mouse
-ClassGuid   = {4d36e96f-e325-11ce-bfc1-08002be10318}
+Class       = Keyboard
+ClassGuid   = {4d36e96b-e325-11ce-bfc1-08002be10318}
 Provider    = %ProviderString%
 DriverVer   = ; stamped at build time
-CatalogFile = mouse.cat
+CatalogFile = oib_kbd.cat
 PnpLockdown = 1
 
 [DestinationDirs]
@@ -53,25 +63,25 @@ DefaultDestDir = 13
 1 = %DiskName%,,,
 
 [SourceDisksFiles]
-mouse.sys = 1
+oib_kbd.sys = 1
 
 [DefaultInstall.NTamd64]
-CopyFiles = Mouse.CopyFiles
+CopyFiles = Keyboard.CopyFiles
 
 [DefaultInstall.NTamd64.Services]
-AddService = OpenInputBridgeMouse,,Mouse.ServiceInstall
+AddService = OpenInputBridgeKeyboard,,Keyboard.ServiceInstall
 
-[Mouse.CopyFiles]
-mouse.sys
+[Keyboard.CopyFiles]
+oib_kbd.sys
 
-[Mouse.ServiceInstall]
+[Keyboard.ServiceInstall]
 DisplayName   = %ServiceDisplayName%
 ServiceType   = 1 ; SERVICE_KERNEL_DRIVER
 StartType     = 1 ; SERVICE_SYSTEM_START
 ErrorControl  = 1 ; SERVICE_ERROR_NORMAL
-ServiceBinary = %13%\mouse.sys
+ServiceBinary = %13%\oib_kbd.sys
 
 [Strings]
 ProviderString     = "OpenInputBridge Contributors"
-ServiceDisplayName = "OpenInputBridge Mouse"
-DiskName           = "OpenInputBridge Mouse Installation Disk"
+ServiceDisplayName = "OpenInputBridge Keyboard"
+DiskName           = "OpenInputBridge Keyboard Installation Disk"

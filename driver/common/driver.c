@@ -7,7 +7,7 @@
 // hijack) lands in M1 (kbdfilter.c / mousefilter.c). Slot table lands in M2 (slots.c). IOCTL
 // handling lands in M3/M4/M5 (ioctl.c). See the project plan for the full milestone list.
 //
-// Shared verbatim between keyboard.vcxproj and mouse.vcxproj (see driver.h's comment on
+// Shared verbatim between oib_kbd.vcxproj and oib_mou.vcxproj (see driver.h's comment on
 // OIB_BUILD_KEYBOARD/OIB_BUILD_MOUSE) — the only per-binary logic is which single filter type
 // gets attached below, gated on the same two build-time defines.
 
@@ -30,7 +30,7 @@
 // revisit if M5's black-box observation of the real driver's ACL turns out to differ.
 static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)";
 
-// This binary's own device setup class GUID (see docs/PROTOCOL.md and keyboard.inx/mouse.inx) —
+// This binary's own device setup class GUID (see docs/PROTOCOL.md and oib_kbd.inx/oib_mou.inx) —
 // used to confirm OibEvtDeviceAdd is being called for the class stack this binary is registered
 // as an upper filter under (installer/), before attaching anything. IoGetDeviceProperty(...,
 // DevicePropertyClassGuid, ...) returns the class GUID as a printable string (not a binary
@@ -150,7 +150,7 @@ OibEvtDeviceAdd(
 
     // PnP calls this once per stack as devices are enumerated, since this driver is registered
     // as an upper filter under exactly one device setup class (installer/) — Keyboard for
-    // keyboard.sys, Mouse for mouse.sys. Confirm the class before creating anything, per the
+    // oib_kbd.sys, Mouse for oib_mou.sys. Confirm the class before creating anything, per the
     // pattern in Microsoft's kbfiltr/moufiltr samples ("query the device properties ... and
     // based on that, decide to create a filter device object").
     pdo = WdfFdoInitWdmGetPhysicalDevice(DeviceInit);

@@ -10,7 +10,7 @@
 // The table is always sized at OIB_TOTAL_DEVICE_SLOT_COUNT (20) regardless of which binary
 // this is compiled into — only the first OibActiveSlotCount entries are ever initialized/used
 // (see OibSlotTableInitialize), so no dynamic allocation is needed even though the split
-// between keyboard.sys and mouse.sys is a runtime, registry-configured value (docs/DECISIONS.md
+// between oib_kbd.sys and oib_mou.sys is a runtime, registry-configured value (docs/DECISIONS.md
 // 2026-08-02 entry) rather than a compile-time constant.
 
 #include "slots.h"

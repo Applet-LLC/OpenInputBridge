@@ -217,3 +217,43 @@ OpenInputBridgeの`driver/*.c`には現状`alloc_text`が一切無く、該当�
 将来ズレないよう、両方が参照する`driver/common/version.h`を新設して一元化した
 （リソースコンパイラが`ntddk.h`/`wdf.h`を読み込まずに済むよう、`driver.h`とは独立した
 依存の無い小さいヘッダにした）。
+
+---
+
+## 2026-08-02: `keyboard.sys`/`mouse.sys`がWindows標準搭載ファイルと名前衝突 → `oib_kbd.sys`/`oib_mou.sys`に改名
+
+### 症状
+
+実際のHLKテストクライアントで`OpenInputBridgeSetup.exe`を実行すると、
+`DiInstallDriverW`自体は成功する（「Staged the OpenInputBridgeKeyboard driver package into
+the Driver Store.」まで出力される）にもかかわらず、続く
+`SetupInstallServicesFromInfSectionW`が`3758096641`（16進`0xE0000101` =
+`ERROR_SECTION_NOT_FOUND`）で失敗した。
+
+### 原因
+
+`installer/install.cpp`の`FindStagedInfPath`は、Driver Store内の
+`%windir%\System32\DriverStore\FileRepository\keyboard.inf_*`をワイルドカード検索して
+ステージ済みINFを見つける実装だが、このテストクライアントには**2つ**の
+`keyboard.inf_<hash>`フォルダが存在していた。1つは今回ステージしたばかりの
+OpenInputBridge自身のもの、もう一つは**Windowsに標準搭載されているPS/2キーボードの
+インボックスドライバ**（`i8042prt.sys`/`kbdclass.sys`/`kbdhid.sys`を伴う、OSセットアップ時
+からDriver Storeに存在するもの）だった。`keyboard.inf`という、いかにもありそうな安易な
+ファイル名を選んだことが、Windows標準搭載ファイルとの衝突を招いた。これは特定のテスト
+環境固有の問題ではなく、**あらゆるWindows環境で起こりうる衝突**である（`mouse.inf`側も
+同様の標準搭載ファイルが存在するため、同じ問題を抱えていた）。
+
+（この調査の過程で、`FindStagedInfPath`が複数該当時に「列挙順で最後に見つかったもの」を
+採用していた点も別途修正し、「最終更新日時が一番新しいもの」を選ぶようにした——これは
+衝突そのものの直接原因ではなかったが、あわせて直しておくべき頑健性の問題だった。）
+
+### 対応
+
+ドライバファイル名を、キーボード側は`oib_kbd.sys`、マウス側は`oib_mou.sys`に改名した
+（`.inf`/`.cat`も同様、`.vcxproj`/`.inx`/`.rc`ソースファイルも一貫性のため合わせて改名）。
+サービス名（`OpenInputBridgeKeyboard`/`OpenInputBridgeMouse`）はこの衝突と無関係なため
+変更していない。
+
+Interception互換性は`\\.\interceptionNN`というデバイス名とワイヤプロトコル（IOCTL）の
+みで決まり、ドライバファイル名・サービス名・INFファイル名とは完全に無関係なため、
+この改名によって互換性への影響は一切ない。

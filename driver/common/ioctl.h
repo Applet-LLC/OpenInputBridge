@@ -46,7 +46,7 @@ typedef struct _OIB_DRIVER_IDENTITY
     ULONG   Signature;      // OIB_DRIVER_IDENTITY_SIGNATURE — a match confirms OpenInputBridge.
     ULONG   VersionMajor;   // OIB_VERSION_MAJOR (version.h) at build time.
     ULONG   VersionMinor;   // OIB_VERSION_MINOR (version.h) at build time.
-    BOOLEAN IsKeyboard;     // Whether this handle is served by keyboard.sys (TRUE) or mouse.sys.
+    BOOLEAN IsKeyboard;     // Whether this handle is served by oib_kbd.sys (TRUE) or oib_mou.sys.
 } OIB_DRIVER_IDENTITY, *POIB_DRIVER_IDENTITY;
 
 // Number of stroke records the capture queue can hold before OibDispatch{Keyboard,Mouse}Stroke

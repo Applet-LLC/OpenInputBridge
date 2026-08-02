@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.11.35222.181
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "keyboard", "driver\keyboard\keyboard.vcxproj", "{1C3E5A7F-9B2D-4E6C-8A1F-5D3B7C9E2A48}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "oib_kbd", "driver\keyboard\oib_kbd.vcxproj", "{1C3E5A7F-9B2D-4E6C-8A1F-5D3B7C9E2A48}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mouse", "driver\mouse\mouse.vcxproj", "{2D4F6B8A-AC3E-4F7D-9B2A-6E4C8D1A3F59}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "oib_mou", "driver\mouse\oib_mou.vcxproj", "{2D4F6B8A-AC3E-4F7D-9B2A-6E4C8D1A3F59}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OpenInputBridgeSetup", "installer\OpenInputBridgeSetup.vcxproj", "{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}"
 EndProject

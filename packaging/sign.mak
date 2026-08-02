@@ -8,8 +8,8 @@
 #
 # Signs directly (no signature-stripping pass): nothing here ships a pre-signed third-party
 # binary, so there's no existing signature to remove before applying ours. The driver .sys files
-# are built with $(SignMode)=Off for Release (see driver/keyboard/keyboard.vcxproj and
-# driver/mouse/mouse.vcxproj) specifically so they arrive here unsigned — no leftover WDK test
+# are built with $(SignMode)=Off for Release (see driver/keyboard/oib_kbd.vcxproj and
+# driver/mouse/oib_mou.vcxproj) specifically so they arrive here unsigned — no leftover WDK test
 # signature to worry about, unlike Debug builds.
 #
 # Normally invoked through ..\OpenInputBridge.sln's "Packaging" project (a Makefile-type
@@ -21,13 +21,17 @@
 #   nmake -f packaging\sign.mak sign-driver (sign only: both drivers' .sys/.cat)
 #   nmake -f packaging\sign.mak stage      (stage only, no signing)
 #   nmake -f packaging\sign.mak whql       (post-WHQL: sign+stage installer .exe and refresh
-#                                            Symbol\, WITHOUT touching Signed\keyboard\/mouse\)
+#                                            Symbol\, WITHOUT touching Signed\oib_kbd\/oib_mou\)
 #   nmake -f packaging\sign.mak package    (zip whatever's currently in Signed\ into dist\)
 #
 # Since docs/DECISIONS.md's 2026-07-30 entry, this ships TWO independent driver packages
-# (keyboard.sys/Class=Keyboard and mouse.sys/Class=Mouse — see driver/keyboard/, driver/mouse/)
+# (oib_kbd.sys/Class=Keyboard and oib_mou.sys/Class=Mouse — see driver/keyboard/, driver/mouse/)
 # instead of the original single OpenInputBridge.sys/Class=System binary. Every target below
-# that used to touch one driver package now touches both.
+# that used to touch one driver package now touches both. Package base names are
+# "oib_kbd"/"oib_mou" rather than the more obvious "keyboard"/"mouse" to avoid colliding with
+# the inbox keyboard.inf/mouse.inf every Windows install already has in the Driver Store — see
+# driver/keyboard/oib_kbd.inx's header comment and docs/DECISIONS.md's 2026-08-02 entry
+# (second one).
 #
 # Two distinct pipelines into Signed\, both ending in the same "package" step:
 #
@@ -39,12 +43,12 @@
 #
 #   Post-WHQL ("whql"): once these drivers have gone through HLK/WHQL, their .inf/.cat/.sys no
 #   longer come from local signing — they come back from that submission process and get
-#   dropped into Signed\keyboard\ and Signed\mouse\ BY HAND (this makefile never writes there
+#   dropped into Signed\oib_kbd\ and Signed\oib_mou\ BY HAND (this makefile never writes there
 #   in this mode). Only the installer .exe (never part of the WHQL submission) still needs
 #   local EV signing, and Signed\Symbol\ still wants our own freshly-built .pdb files (WHQL
 #   doesn't hand them back — the submitted drivers' debug symbols are exactly what we built).
 #   "whql" therefore only ever touches the installer .exe and Symbol\, and leaves
-#   Signed\keyboard\/mouse\ exactly as you placed them.
+#   Signed\oib_kbd\/oib_mou\ exactly as you placed them.
 #
 # "package" is deliberately independent of both "all" and "whql": it only ever looks at
 # what's currently sitting in Signed\, so the same single step works regardless of which
@@ -52,10 +56,10 @@
 #
 # Prerequisite: both drivers and the installer must already be built in Release|x64 (see
 # ..\OpenInputBridge.sln, or README.md's ビルド方法 for standalone project builds).
-# driver/keyboard/keyboard.vcxproj's and driver/mouse/mouse.vcxproj's Inf2Cat steps each
+# driver/keyboard/oib_kbd.vcxproj's and driver/mouse/oib_mou.vcxproj's Inf2Cat steps each
 # produce a driver package folder this reads from:
-#   ..\driver\keyboard\x64\Release\keyboard\{keyboard.inf, keyboard.cat, keyboard.sys}
-#   ..\driver\mouse\x64\Release\mouse\{mouse.inf, mouse.cat, mouse.sys}
+#   ..\driver\keyboard\x64\Release\oib_kbd\{oib_kbd.inf, oib_kbd.cat, oib_kbd.sys}
+#   ..\driver\mouse\x64\Release\oib_mou\{oib_mou.inf, oib_mou.cat, oib_mou.sys}
 #
 # Neither Signed\ nor dist\ are checked into git (build/signing output, not source — see
 # .gitignore). Signed\ is not cleaned by a solution "Clean" of the ReleaseWHQL configuration
@@ -65,34 +69,34 @@
 # Distribution layout (matches what installer/install.cpp's InfPath lookup expects —
 # <exeDir>\<PackageName>\<PackageName>.inf per driver):
 #   OpenInputBridgeSetup.exe
-#   keyboard\keyboard.inf
-#   keyboard\keyboard.cat
-#   keyboard\keyboard.sys
-#   mouse\mouse.inf
-#   mouse\mouse.cat
-#   mouse\mouse.sys
-#   Symbol\keyboard.pdb
-#   Symbol\mouse.pdb
+#   oib_kbd\oib_kbd.inf
+#   oib_kbd\oib_kbd.cat
+#   oib_kbd\oib_kbd.sys
+#   oib_mou\oib_mou.inf
+#   oib_mou\oib_mou.cat
+#   oib_mou\oib_mou.sys
+#   Symbol\oib_kbd.pdb
+#   Symbol\oib_mou.pdb
 
-DRIVER_PACKAGE_DIR_KBD	= ..\driver\keyboard\x64\Release\keyboard
+DRIVER_PACKAGE_DIR_KBD	= ..\driver\keyboard\x64\Release\oib_kbd
 
-DRIVER_PACKAGE_DIR_MOU	= ..\driver\mouse\x64\Release\mouse
+DRIVER_PACKAGE_DIR_MOU	= ..\driver\mouse\x64\Release\oib_mou
 
-TARGET_SYS_KBD	= $(DRIVER_PACKAGE_DIR_KBD)\keyboard.sys
+TARGET_SYS_KBD	= $(DRIVER_PACKAGE_DIR_KBD)\oib_kbd.sys
 
-TARGET_INF_KBD	= $(DRIVER_PACKAGE_DIR_KBD)\keyboard.inf
+TARGET_INF_KBD	= $(DRIVER_PACKAGE_DIR_KBD)\oib_kbd.inf
 
-TARGET_CAT_KBD	= $(DRIVER_PACKAGE_DIR_KBD)\keyboard.cat
+TARGET_CAT_KBD	= $(DRIVER_PACKAGE_DIR_KBD)\oib_kbd.cat
 
-TARGET_PDB_KBD	= ..\driver\keyboard\x64\Release\keyboard.pdb
+TARGET_PDB_KBD	= ..\driver\keyboard\x64\Release\oib_kbd.pdb
 
-TARGET_SYS_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\mouse.sys
+TARGET_SYS_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\oib_mou.sys
 
-TARGET_INF_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\mouse.inf
+TARGET_INF_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\oib_mou.inf
 
-TARGET_CAT_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\mouse.cat
+TARGET_CAT_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\oib_mou.cat
 
-TARGET_PDB_MOU	= ..\driver\mouse\x64\Release\mouse.pdb
+TARGET_PDB_MOU	= ..\driver\mouse\x64\Release\oib_mou.pdb
 
 TARGET_BIN	= ..\installer\x64\Release\OpenInputBridgeSetup.exe
 
@@ -101,9 +105,9 @@ SIGNED_DIR	= Signed
 # No intermediate "Drivers\" level: installer/install.cpp looks for
 # <exeDir>\<PackageName>\<PackageName>.inf directly (kbdaddid/mouaddid convention — see
 # common.h), not <exeDir>\Drivers\<PackageName>\...
-SIGNED_DRIVERS_DIR_KBD	= $(SIGNED_DIR)\keyboard
+SIGNED_DRIVERS_DIR_KBD	= $(SIGNED_DIR)\oib_kbd
 
-SIGNED_DRIVERS_DIR_MOU	= $(SIGNED_DIR)\mouse
+SIGNED_DRIVERS_DIR_MOU	= $(SIGNED_DIR)\oib_mou
 
 SIGNED_SYMBOLS_DIR	= $(SIGNED_DIR)\Symbol
 
@@ -178,11 +182,11 @@ stage-symbol:
 		@echo [stage-symbol] copied both pdbs into $(SIGNED_SYMBOLS_DIR)
 
 # Post-WHQL pipeline — see the header comment above for why this only ever touches the
-# installer .exe and Symbol\, never Signed\keyboard\/mouse\.
+# installer .exe and Symbol\, never Signed\oib_kbd\/oib_mou\.
 whql: sign-bin stage-bin stage-symbol
-		@echo [whql] installer signed + staged, Symbol\ refreshed. Signed\keyboard\/mouse\ left as-is:
+		@echo [whql] installer signed + staged, Symbol\ refreshed. Signed\oib_kbd\/oib_mou\ left as-is:
 		@echo [whql] make sure the HLK/WHQL-returned .inf/.cat/.sys for both keyboard and mouse
-		@echo [whql] are already sitting in Signed\keyboard\ and Signed\mouse\.
+		@echo [whql] are already sitting in Signed\oib_kbd\ and Signed\oib_mou\.
 
 # Zips Signed\ as-is into dist\OpenInputBridge.zip. Uses PowerShell's Compress-Archive rather
 # than a separate zip tool dependency — available on every supported Windows version.

@@ -24,10 +24,13 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 - デバイス番号 1〜10 = キーボード（インデックス0〜9）
 - デバイス番号 11〜20 = マウス（インデックス10〜19）
 - デバイスパス: `\\.\interceptionNN`（`NN` は2桁ゼロ埋め、`00`〜`19`。インデックス `i` → デバイス名の `NN` は `i` そのもの）
-- 2026-08-01以降、この20個のコントロールデバイスは`keyboard.sys`（既定00〜09）・`mouse.sys`
+- 2026-08-01以降、この20個のコントロールデバイスは`oib_kbd.sys`（既定00〜09）・`oib_mou.sys`
   （既定10〜19）の2バイナリに分かれて公開される（[docs/DECISIONS.md](DECISIONS.md)の
   2026-08-01付エントリ参照）。番号体系・プロトコル自体はこの分割の前後で変わらない——両ドライバが
-  インストールされていれば、ユーザーモード側からは従来どおり単一の番号空間`00`〜`19`として見える
+  インストールされていれば、ユーザーモード側からは従来どおり単一の番号空間`00`〜`19`として見える。
+  ファイル名が`keyboard.sys`/`mouse.sys`という素直なものではないのは、Windows標準搭載の
+  `keyboard.inf`/`mouse.inf`とDriver Store上で衝突するため（[docs/DECISIONS.md](DECISIONS.md)の
+  2026-08-02付エントリ、2つ目参照）
 - **2026-08-02以降、上記10/10の境界は既定値であり、`KeyboardSlotCount`レジストリ値
   （両サービスの`Parameters`キー、`OpenInputBridgeSetup.exe install keyboard|mouse --slots=N`で設定）
   により変更できる**（[docs/DECISIONS.md](DECISIONS.md)の2026-08-02付エントリ参照）。合計20個は
@@ -182,7 +185,7 @@ typedef struct _MOUSE_INPUT_DATA
       ULONG   Signature;      // 0x3142494F ("OIB1"のリトルエンディアン読み) — 一致すればOIB
       ULONG   VersionMajor;
       ULONG   VersionMinor;
-      BOOLEAN IsKeyboard;     // このハンドルがkeyboard.sys/mouse.sysのどちらの応答か
+      BOOLEAN IsKeyboard;     // このハンドルがoib_kbd.sys/oib_mou.sysのどちらの応答か
   } OIB_DRIVER_IDENTITY, *POIB_DRIVER_IDENTITY;
   ```
   新規クライアントが「本物のInterceptionドライバと通信しているのか、OpenInputBridgeと通信して

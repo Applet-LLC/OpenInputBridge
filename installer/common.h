@@ -14,8 +14,8 @@
 //      the INF in the Driver Store, to actually run [DefaultInstall.NTamd64.Services] and
 //      create the SERVICE_KERNEL_DRIVER/SERVICE_SYSTEM_START service.
 // Calling DiInstallDriverW alone is NOT sufficient: without a [Manufacturer]/[Models] device
-// match (this is a primitive driver — see driver/keyboard/keyboard.inx and
-// driver/mouse/mouse.inx), its own device install phase never runs, so step 2 has to be done
+// match (this is a primitive driver — see driver/keyboard/oib_kbd.inx and
+// driver/mouse/oib_mou.inx), its own device install phase never runs, so step 2 has to be done
 // explicitly.
 //
 // Class-level UpperFilters registration is deliberately NOT part of either INF (InfVerif's
@@ -31,8 +31,11 @@
 //
 // See docs/DECISIONS.md's 2026-07-30 entry for why OpenInputBridge, originally one binary
 // registered under both the Keyboard and Mouse classes with Class=System in its INF, was split
-// into this pair of independent driver packages (keyboard.sys/Class=Keyboard,
-// mouse.sys/Class=Mouse) instead.
+// into this pair of independent driver packages (oib_kbd.sys/Class=Keyboard,
+// oib_mou.sys/Class=Mouse) instead. Package base names are "oib_kbd"/"oib_mou" rather than the
+// more obvious "keyboard"/"mouse" specifically to avoid colliding with the inbox
+// keyboard.inf/mouse.inf every Windows install already carries in the Driver Store — see
+// oib_kbd.inx's header comment and docs/DECISIONS.md's 2026-08-02 entry (second one).
 
 #pragma once
 
@@ -48,10 +51,12 @@ enum class DriverType {
 };
 
 struct DriverInfo {
-    // Package/base file name: matches driver/<PackageName>/<PackageName>.{vcxproj,inx} and the
-    // resulting <PackageName>.sys/.inf/.cat. Also the staged package's subfolder name next to
-    // this installer executable (<exeDir>\<PackageName>\<PackageName>.inf), matching the
-    // kbdaddid/mouaddid DriverManager.cpp convention.
+    // Package/base file name: matches the resulting <PackageName>.sys/.inf/.cat and the
+    // <PackageName>.{vcxproj,inx} they're built from (which live under driver/keyboard/ and
+    // driver/mouse/ respectively — those folder names don't need to match PackageName, only
+    // the files inside do). Also the staged package's subfolder name next to this installer
+    // executable (<exeDir>\<PackageName>\<PackageName>.inf), matching the kbdaddid/mouaddid
+    // DriverManager.cpp convention.
     const wchar_t* PackageName;
 
     // SCM service name. Deliberately distinct from PackageName (unlike kbdaddid/mouaddid, which

@@ -30,17 +30,17 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 | M4 | `IOCTL_WRITE`（合成入力の注入／捕捉ストロークの解放） | ✅ 実装・実機テスト済み |
 | M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 完了・実機テスト済み。`tests/precedence_blackbox/`の`precedence_probe`による複数プロセス同時アタッチの実機テストで、配送順序・チェーン継続・捕捉による遮断・同precedenceでのアタッチ順タイブレークすべて想定通りと確認済み。フィルタのビット照合規則自体は引き続き実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 | M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了・実機テスト済み（インストール/アンインストール/再起動サイクル、サービス登録、UpperFilters順序を確認） |
-| M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKでSystemクラス扱い（69件のテスト対象）と判明したため、キーボード用（`keyboard.sys`）・マウス用（`mouse.sys`）の2ドライバに分割済み（[`docs/DECISIONS.md`](docs/DECISIONS.md)の2026-08-01付エントリ参照）。分割後のHLK再提出は未実施 |
+| M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKでSystemクラス扱い（69件のテスト対象）と判明したため、キーボード用（`oib_kbd.sys`）・マウス用（`oib_mou.sys`）の2ドライバに分割済み（[`docs/DECISIONS.md`](docs/DECISIONS.md)の2026-08-01付エントリ参照）。分割後のHLK再提出は未実施 |
 | M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)に、`third_party/interception/samples/`配下の全サンプル（`identify`/`hardwareid`/`caps2esc`/`axes`/`cadstop`/`mathpointer`/`x2y`）と自作の`identify2`をビルドするプロジェクトを用意し、M0/M2/M3/M4の基本動作・実際のキーリマップ（キーボード/マウス双方）・`INTERCEPTION_FILTER_KEY_ALL`での広範なフィルタ照合・絶対座標指定と高頻度連続WRITEまで実機確認済み。特にkbdclassより下でのCtrl+Alt+Del捕捉がWindows 11でも機能することを確認（`cadstop`。Win32のフックでは原理的に不可能な動作）。無関係な複数ツール（`x2y`+`cadstop`）を同時にアタッチしても互いに干渉せず動作することも実機確認済み。AutoHotkeyのInterception fork等、本物の消費者アプリでの検証は未実施 |
 | M9 | デバイス総数上限（現行20台）の撤廃（将来対応） | 📋 未着手。20台のうちキーボード/マウスへの**配分比率**は`KeyboardSlotCount`で可変にできるようになりました（2026-08-02、[docs/DECISIONS.md](docs/DECISIONS.md)参照）が、これはM9とは別物で、合計20台という上限そのものはまだ撤廃していません。現行上限のうちキーボード10台は実機で確認済み、マウス10台は検証機材の都合で未確認（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 
 詳細なタスク管理は [Issues](../../issues) / [Projects](../../projects) を参照してください。
 
-**M7（WHQL署名）について**: Microsoftはスタンドアロンのattestation signingを既に提供しておらず、WHQL署名を得るにはHLKテストの実施・提出が前提となります。本ドライバは当初キーボード/マウス両クラスに対応する単一バイナリ（`Class=System`）でしたが、HLKでのテスト対象が69件と膨大になることが判明したため、キーボード用（`keyboard.sys`, `Class=Keyboard`）・マウス用（`mouse.sys`, `Class=Mouse`）の2ドライバに分割しました。
+**M7（WHQL署名）について**: Microsoftはスタンドアロンのattestation signingを既に提供しておらず、WHQL署名を得るにはHLKテストの実施・提出が前提となります。本ドライバは当初キーボード/マウス両クラスに対応する単一バイナリ（`Class=System`）でしたが、HLKでのテスト対象が69件と膨大になることが判明したため、キーボード用（`oib_kbd.sys`, `Class=Keyboard`）・マウス用（`oib_mou.sys`, `Class=Mouse`）の2ドライバに分割しました。
 
 ## アーキテクチャ概要
 
-- KMDF（Kernel-Mode Driver Framework）ベースのフィルタドライバ。キーボード用（`keyboard.sys`, `Class=Keyboard`）・マウス用（`mouse.sys`, `Class=Mouse`）の2バイナリで構成（`driver/common/`の共通ロジックを両方から参照）
+- KMDF（Kernel-Mode Driver Framework）ベースのフィルタドライバ。キーボード用（`oib_kbd.sys`, `Class=Keyboard`）・マウス用（`oib_mou.sys`, `Class=Mouse`）の2バイナリで構成（`driver/common/`の共通ロジックを両方から参照）。`keyboard.sys`/`mouse.sys`という素直な名前ではないのは、Windows標準搭載の`keyboard.inf`/`mouse.inf`（PS/2キーボード/マウスのインボックスドライバ）とDriver Store上で名前が衝突するため（[docs/DECISIONS.md](docs/DECISIONS.md)の2026-08-02付エントリ参照）
 - それぞれ対応するデバイスクラススタックに上位フィルタとしてアタッチし、`IOCTL_INTERNAL_*_CONNECT` によるクラスサービスコールバックの差し替えで入力を捕捉/再注入
 - 物理デバイスの有無によらず常時20個のコントロールデバイスを公開し、上位のユーザーモードライブラリとの互換性を維持。既定ではキーボード×10・マウス×10だが、この配分は`KeyboardSlotCount`レジストリ値（インストーラの`--slots=N`）で変更可能（詳細は[インストール](#インストール)・[`docs/PROTOCOL.md`](docs/PROTOCOL.md)参照）
 - 新規クライアントが実際の配分やOpenInputBridge自体の識別を確認できるよう、`IOCTL_GET_KEYBOARD_SLOT_COUNT`/`IOCTL_GET_DRIVER_IDENTITY`という独自拡張IOCTLも用意（[`docs/PROTOCOL.md`](docs/PROTOCOL.md)参照）
@@ -63,7 +63,7 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ## インストール
 
-配布されたzip（`OpenInputBridge.zip`）を展開すると、`keyboard\`・`mouse\`（それぞれ`.inf`/`.cat`/`.sys`）と
+配布されたzip（`OpenInputBridge.zip`）を展開すると、`oib_kbd\`・`oib_mou\`（それぞれ`.inf`/`.cat`/`.sys`）と
 `OpenInputBridgeSetup.exe` が含まれています。
 
 1. `OpenInputBridgeSetup.exe` を実行します（管理者権限が必要なマニフェストが付与されているため、
@@ -122,7 +122,7 @@ git submodule update --init --recursive
 |---|---|
 | `Debug` | ドライバ・インストーラのみビルド（テスト署名、開発用）。署名・パッケージングは実行されません |
 | `Release` | ドライバ・インストーラをビルドし、両方をこのプロジェクトのEV証明書で署名して`packaging\Signed\`に集約、`dist\OpenInputBridge.zip`を作成（WHQL署名を取得する前の配布物） |
-| `ReleaseWHQL` | インストーラのみEV署名して集約し、`packaging\Signed\keyboard\`・`packaging\Signed\mouse\`はHLK/WHQL申請から返ってきたファイルを**手動で配置したまま上書きしない**でzip作成（WHQL署名取得後の配布物） |
+| `ReleaseWHQL` | インストーラのみEV署名して集約し、`packaging\Signed\oib_kbd\`・`packaging\Signed\oib_mou\`はHLK/WHQL申請から返ってきたファイルを**手動で配置したまま上書きしない**でzip作成（WHQL署名取得後の配布物） |
 
 EWDKを使う場合はビルド環境をセットアップしたコマンドプロンプトから、そのままソリューション全体をビルドできます。
 
@@ -133,9 +133,9 @@ msbuild OpenInputBridge.sln /p:Configuration=Release /p:Platform=x64
 
 同じ環境変数を継いだまま `devenv OpenInputBridge.sln` でVisual Studio IDEを開いても操作できます。
 
-`ReleaseWHQL`構成を使う前に、HLK/WHQL申請から返ってきた `keyboard.inf`/`keyboard.cat`/`keyboard.sys` を
-`packaging\Signed\keyboard\` に、`mouse.inf`/`mouse.cat`/`mouse.sys` を
-`packaging\Signed\mouse\` に、それぞれ手動でコピーしておいてください
+`ReleaseWHQL`構成を使う前に、HLK/WHQL申請から返ってきた `oib_kbd.inf`/`oib_kbd.cat`/`oib_kbd.sys` を
+`packaging\Signed\oib_kbd\` に、`oib_mou.inf`/`oib_mou.cat`/`oib_mou.sys` を
+`packaging\Signed\oib_mou\` に、それぞれ手動でコピーしておいてください
 （`Signed\Symbol\` はこちらの手元のビルドから毎回自動で更新されます）。
 
 署名・パッケージングの内部的な処理内容（個別のnmakeターゲット等）は `packaging/sign.mak` のコメントを

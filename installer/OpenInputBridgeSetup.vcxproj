@@ -59,7 +59,7 @@ Plain Win32 console application (not a driver project) — builds OpenInputBridg
       <TreatWarningAsError>true</TreatWarningAsError>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <SDLCheck>true</SDLCheck>
-      <!-- Source files are UTF-8 (no BOM) — see driver/keyboard/keyboard.vcxproj's equivalent
+      <!-- Source files are UTF-8 (no BOM) — see driver/keyboard/oib_kbd.vcxproj's equivalent
            note for why this matters under a non-UTF-8 system code page. -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <!-- Static CRT: this exe is handed to end users standalone (unzipped next to the driver

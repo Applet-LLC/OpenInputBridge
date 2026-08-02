@@ -27,7 +27,7 @@
 // about where the boundary is as long as the installer keeps both copies in sync (installer/).
 #define OIB_KEYBOARD_SLOT_COUNT_VALUE_NAME L"KeyboardSlotCount"
 
-// This header is shared, unmodified, between the keyboard.vcxproj and mouse.vcxproj projects
+// This header is shared, unmodified, between the oib_kbd.vcxproj and oib_mou.vcxproj projects
 // (see docs/DECISIONS.md's 2026-07-30 entry on why the single-binary/Class=System driver was
 // split in two): each project defines exactly one of OIB_BUILD_KEYBOARD/OIB_BUILD_MOUSE
 // (PreprocessorDefinitions). OIB_IS_KEYBOARD_BUILD is the only compile-time fact either binary

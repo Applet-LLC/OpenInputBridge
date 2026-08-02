@@ -69,10 +69,12 @@ project's own kbdfilter.c.
   </ImportGroup>
   <ItemGroup Label="WrappedTaskItems" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <TargetName>keyboard</TargetName>
+    <!-- Not "keyboard": every Windows install already has an inbox keyboard.inf/.sys — see
+         oib_kbd.inx's header comment for the Driver Store name collision this avoids. -->
+    <TargetName>oib_kbd</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <TargetName>keyboard</TargetName>
+    <TargetName>oib_kbd</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -122,14 +124,14 @@ project's own kbdfilter.c.
       OpenInputBridge.vcxproj's original comment (Inf2Cat's Signability test rejects a
       postdated DriverVer). Bump this if it ever again trips a "postdated DriverVer" failure.
     -->
-    <Inf Include="keyboard.inx">
+    <Inf Include="oib_kbd.inx">
       <SpecifyDriverVerDirectiveDate>true</SpecifyDriverVerDirectiveDate>
       <DateStamp>01/01/2026</DateStamp>
     </Inf>
     <FilesToPackage Include="$(TargetPath)" Condition="'$(ConfigurationType)'=='Driver' or '$(ConfigurationType)'=='DynamicLibrary'" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="keyboard.rc" />
+    <ResourceCompile Include="oib_kbd.rc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\common\driver.h" />

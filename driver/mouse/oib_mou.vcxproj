@@ -69,10 +69,12 @@ project's own mousefilter.c.
   </ImportGroup>
   <ItemGroup Label="WrappedTaskItems" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <TargetName>mouse</TargetName>
+    <!-- Not "mouse": every Windows install already has an inbox mouse.inf/.sys — see
+         oib_mou.inx's header comment for the Driver Store name collision this avoids. -->
+    <TargetName>oib_mou</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <TargetName>mouse</TargetName>
+    <TargetName>oib_mou</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -122,14 +124,14 @@ project's own mousefilter.c.
       OpenInputBridge.vcxproj's original comment (Inf2Cat's Signability test rejects a
       postdated DriverVer). Bump this if it ever again trips a "postdated DriverVer" failure.
     -->
-    <Inf Include="mouse.inx">
+    <Inf Include="oib_mou.inx">
       <SpecifyDriverVerDirectiveDate>true</SpecifyDriverVerDirectiveDate>
       <DateStamp>01/01/2026</DateStamp>
     </Inf>
     <FilesToPackage Include="$(TargetPath)" Condition="'$(ConfigurationType)'=='Driver' or '$(ConfigurationType)'=='DynamicLibrary'" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="mouse.rc" />
+    <ResourceCompile Include="oib_mou.rc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\common\driver.h" />

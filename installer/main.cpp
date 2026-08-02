@@ -4,7 +4,7 @@
 //
 // Entry point: OpenInputBridgeSetup.exe installs by default, or uninstalls with /uninstall.
 // With no keyboard/mouse argument, both drivers are installed/uninstalled in sequence
-// (keyboard.sys is the first driver to be installed or the last one to be removed, so a
+// (oib_kbd.sys is the first driver to be installed or the last one to be removed, so a
 // failure partway through still leaves a consistent, well-understood state); pass "keyboard"
 // or "mouse" to act on only that one driver. --slots=N (install + an explicit driver type
 // only) sets that driver's share of the 20 total slots — see common.h/install.cpp and
