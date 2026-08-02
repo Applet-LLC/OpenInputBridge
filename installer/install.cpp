@@ -60,13 +60,25 @@ std::filesystem::path FindStagedInfPath(const DriverInfo& driver)
     }
 
     std::filesystem::path staged;
+    FILETIME stagedWriteTime{};
+
     do {
         if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             std::filesystem::path candidate =
                 std::filesystem::path(systemDirectory) / L"DriverStore" / L"FileRepository" /
                 findData.cFileName / infFileName;
             if (std::filesystem::exists(candidate)) {
-                staged = candidate; // Last match wins; in practice there is exactly one.
+                // Repeated installs (e.g. iterative testing) can leave more than one staged
+                // generation behind here — this installer doesn't prune superseded ones the
+                // way e.g. kbdaddid/mouaddid's DriverManager.cpp does. Picking "whichever
+                // FindNextFileW enumerates last" is not guaranteed to be the one just staged
+                // by DiInstallDriverW above, and running services from a stale/different
+                // generation's INF can fail in confusing ways (e.g. ERROR_SECTION_NOT_FOUND
+                // if that generation's layout differs). Prefer the most recently modified one.
+                if (staged.empty() || CompareFileTime(&findData.ftLastWriteTime, &stagedWriteTime) > 0) {
+                    staged = candidate;
+                    stagedWriteTime = findData.ftLastWriteTime;
+                }
             }
         }
     } while (FindNextFileW(findHandle, &findData));
