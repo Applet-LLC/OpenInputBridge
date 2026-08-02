@@ -24,6 +24,21 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 - デバイス番号 1〜10 = キーボード（インデックス0〜9）
 - デバイス番号 11〜20 = マウス（インデックス10〜19）
 - デバイスパス: `\\.\interceptionNN`（`NN` は2桁ゼロ埋め、`00`〜`19`。インデックス `i` → デバイス名の `NN` は `i` そのもの）
+- 2026-08-01以降、この20個のコントロールデバイスは`keyboard.sys`（既定00〜09）・`mouse.sys`
+  （既定10〜19）の2バイナリに分かれて公開される（[docs/DECISIONS.md](DECISIONS.md)の
+  2026-08-01付エントリ参照）。番号体系・プロトコル自体はこの分割の前後で変わらない——両ドライバが
+  インストールされていれば、ユーザーモード側からは従来どおり単一の番号空間`00`〜`19`として見える
+- **2026-08-02以降、上記10/10の境界は既定値であり、`KeyboardSlotCount`レジストリ値
+  （両サービスの`Parameters`キー、`OpenInputBridgeSetup.exe install keyboard|mouse --slots=N`で設定）
+  により変更できる**（[docs/DECISIONS.md](DECISIONS.md)の2026-08-02付エントリ参照）。合計20個は
+  常に維持されるため、本家ライブラリの`interception_create_context()`自体は配分比率によらず常に
+  成功する。しかし本家`interception.h`の`INTERCEPTION_KEYBOARD(n)`/`INTERCEPTION_MOUSE(n)`マクロは
+  「0〜9=キーボード、10〜19=マウス」をコンパイル時に固定しているため、この配分を知らない
+  （古い）クライアントは、既定以外の配分にした場合、境界がズレたスロット範囲を誤ってもう一方の
+  種別として扱い続ける。オープン自体は失敗しないので、クラッシュやエラーにはならず、**捕捉ビットが
+  一致せず何も捕まらない・読み出したデータを誤った構造体として解釈する、といったサイレントな
+  誤動作になる**点に注意。新しいクライアント/ライブラリは、実際の境界を
+  `IOCTL_GET_KEYBOARD_SLOT_COUNT`（後述）で確認してから配分を前提にすること。
 - `CreateFileA` は `GENERIC_READ` のみで `OPEN_EXISTING` オープンされる（共有モード0）
 
 **互換上の重要な制約**: oblitum/Interceptionのユーザーモードライブラリ `interception_create_context()` は、20個の
@@ -61,6 +76,13 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 | `IOCTL_WRITE` | `0x820` | ストロークを書き込む（合成注入 / 捕捉済みストロークの解放） |
 | `IOCTL_READ` | `0x840` | 捕捉済みストロークを読み出す（非ブロッキング） |
 | `IOCTL_GET_HARDWARE_ID` | `0x880` | 下位デバイス(PDO)のハードウェアID文字列を取得 |
+| `IOCTL_GET_KEYBOARD_SLOT_COUNT` | `0x900` | キーボード側の配分個数(`ULONG`)を取得（OIB独自拡張） |
+| `IOCTL_GET_DRIVER_IDENTITY` | `0xA00` | ドライバ種別・バージョンを取得（OIB独自拡張） |
+
+上2つ（`IOCTL_GET_KEYBOARD_SLOT_COUNT`/`IOCTL_GET_DRIVER_IDENTITY`）は本家Interceptionの
+ワイヤプロトコルには存在しない、OpenInputBridge独自の拡張IOCTL（`IOCTL_GET_HARDWARE_ID`と
+同じ位置づけ）。2026-08-02、可変になったキーボード/マウス配分（上記「デバイス構成」参照）に
+新規クライアントが安全に対応できるよう追加した。
 
 ## データ構造（標準NT DDK構造体）
 
@@ -150,6 +172,30 @@ typedef struct _MOUSE_INPUT_DATA
   ハードウェアID文字列が同一であっても、スロット番号（`INTERCEPTION_KEYBOARD(n)`/`INTERCEPTION_MOUSE(n)`
   のn）で個体は区別できている。ただしスロット番号は接続順に割り当てられる一時的なものであり、
   抜き挿しをまたいで同じ物理デバイスに固定され続けるものではない点に注意（上記参照）。
+- **`IOCTL_GET_KEYBOARD_SLOT_COUNT`**（2026-08-02追加、OIB独自拡張）: 出力バッファに`ULONG`で
+  現在のキーボード側の配分個数（`KeyboardSlotCount`、0〜20）を返す。マウス側の配分は`20-`この値。
+  どのハンドル（キーボード用/マウス用どちらの`\\.\interceptionNN`）から呼んでも同じ値が返る。
+- **`IOCTL_GET_DRIVER_IDENTITY`**（2026-08-02追加、OIB独自拡張）: 出力バッファに以下の構造体を返す。
+  ```c
+  typedef struct _OIB_DRIVER_IDENTITY
+  {
+      ULONG   Signature;      // 0x3142494F ("OIB1"のリトルエンディアン読み) — 一致すればOIB
+      ULONG   VersionMajor;
+      ULONG   VersionMinor;
+      BOOLEAN IsKeyboard;     // このハンドルがkeyboard.sys/mouse.sysのどちらの応答か
+  } OIB_DRIVER_IDENTITY, *POIB_DRIVER_IDENTITY;
+  ```
+  新規クライアントが「本物のInterceptionドライバと通信しているのか、OpenInputBridgeと通信して
+  いるのか」を区別するための手段。本物のInterceptionドライバはこのIOCTLコード自体を実装して
+  いないため、送っても認識されず失敗する（`STATUS_INVALID_DEVICE_REQUEST`等）想定。
+  **未検証の前提であることに注意**: 「本物のInterceptionドライバが未知のIOCTLコードを安全に
+  （クラッシュ等せず）拒否する」という部分は、WDFの未処理IOCTLに対する一般的なデフォルト動作・
+  通常の防御的実装作法から期待される挙動であり、本物のプロプライエタリドライバの実際の反応を
+  確認したものではない。本プロジェクトはクリーンルーム方針（[docs/CLEAN_ROOM.md](CLEAN_ROOM.md)）
+  上、本物のドライバの実挙動を調べること自体を避けているため、この前提はブラックボックス検証待ち
+  （precedenceのビット照合規則と同様の扱い）である。したがって、このIOCTLを使うクライアント側の
+  実装は、「失敗した」場合だけでなく「応答が返ってこない・想定外の反応をした」場合も安全側に
+  倒して「OpenInputBridgeとは確認できなかった」として扱うべきである。
 
 ## 参照実装ファイル（取り込み済み、無改変）
 

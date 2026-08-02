@@ -47,10 +47,12 @@ OibMouEvtDeviceAdd(
         return status;
     }
 
-    // Best-effort: if every mouse slot is already taken (an 11th mouse), this device still
-    // attaches and filters/passes through normally, it's just unreachable via any
-    // \\.\interceptionNN control device until a slot frees up. Not a device-creation failure.
-    (VOID) OibSlotAssign(FALSE, hDevice, &slotIndex);
+    // Best-effort: if every mouse slot is already taken (an 11th mouse, or fewer if this
+    // binary was configured with fewer slots — see docs/DECISIONS.md's 2026-08-02 entry),
+    // this device still attaches and filters/passes through normally, it's just unreachable
+    // via any \\.\interceptionNN control device until a slot frees up. Not a device-creation
+    // failure.
+    (VOID) OibSlotAssign(hDevice, &slotIndex);
 
     filterContext = OibGetMouFilterContext(hDevice);
     filterContext->SlotIndex = slotIndex;

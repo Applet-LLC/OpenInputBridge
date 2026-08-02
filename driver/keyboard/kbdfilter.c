@@ -55,10 +55,12 @@ OibKbdEvtDeviceAdd(
         return status;
     }
 
-    // Best-effort: if every keyboard slot is already taken (an 11th keyboard), this device
-    // still attaches and filters/passes through normally, it's just unreachable via any
-    // \\.\interceptionNN control device until a slot frees up. Not a device-creation failure.
-    (VOID) OibSlotAssign(TRUE, hDevice, &slotIndex);
+    // Best-effort: if every keyboard slot is already taken (an 11th keyboard, or fewer if
+    // this binary was configured with fewer slots — see docs/DECISIONS.md's 2026-08-02
+    // entry), this device still attaches and filters/passes through normally, it's just
+    // unreachable via any \\.\interceptionNN control device until a slot frees up. Not a
+    // device-creation failure.
+    (VOID) OibSlotAssign(hDevice, &slotIndex);
 
     filterContext = OibGetKbdFilterContext(hDevice);
     filterContext->SlotIndex = slotIndex;

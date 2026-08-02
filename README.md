@@ -30,18 +30,18 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 | M4 | `IOCTL_WRITE`（合成入力の注入／捕捉ストロークの解放） | ✅ 実装・実機テスト済み |
 | M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 完了・実機テスト済み。`tests/precedence_blackbox/`の`precedence_probe`による複数プロセス同時アタッチの実機テストで、配送順序・チェーン継続・捕捉による遮断・同precedenceでのアタッチ順タイブレークすべて想定通りと確認済み。フィルタのビット照合規則自体は引き続き実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 | M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了・実機テスト済み（インストール/アンインストール/再起動サイクル、サービス登録、UpperFilters順序を確認） |
-| M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKテストを実施しWHQL署名の取得を目指す |
+| M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKでSystemクラス扱い（69件のテスト対象）と判明したため、キーボード用（`keyboard.sys`）・マウス用（`mouse.sys`）の2ドライバに分割済み（[`docs/DECISIONS.md`](docs/DECISIONS.md)の2026-08-01付エントリ参照）。分割後のHLK再提出は未実施 |
 | M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)に、`third_party/interception/samples/`配下の全サンプル（`identify`/`hardwareid`/`caps2esc`/`axes`/`cadstop`/`mathpointer`/`x2y`）と自作の`identify2`をビルドするプロジェクトを用意し、M0/M2/M3/M4の基本動作・実際のキーリマップ（キーボード/マウス双方）・`INTERCEPTION_FILTER_KEY_ALL`での広範なフィルタ照合・絶対座標指定と高頻度連続WRITEまで実機確認済み。特にkbdclassより下でのCtrl+Alt+Del捕捉がWindows 11でも機能することを確認（`cadstop`。Win32のフックでは原理的に不可能な動作）。無関係な複数ツール（`x2y`+`cadstop`）を同時にアタッチしても互いに干渉せず動作することも実機確認済み。AutoHotkeyのInterception fork等、本物の消費者アプリでの検証は未実施 |
 | M9 | デバイス数上限（現行20台）の撤廃（将来対応） | 📋 未着手。現行上限のうちキーボード10台は実機で確認済み、マウス10台は検証機材の都合で未確認（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 
 詳細なタスク管理は [Issues](../../issues) / [Projects](../../projects) を参照してください。
 
-**M7（WHQL署名）について**: Microsoftはスタンドアロンのattestation signingを既に提供しておらず、WHQL署名を得るにはHLKテストの実施・提出が前提となります。本ドライバは現在キーボード/マウス両クラスに対応する単一バイナリですが、HLKの試験要件・結果次第では、キーボード用・マウス用でドライバを分割する可能性があります。
+**M7（WHQL署名）について**: Microsoftはスタンドアロンのattestation signingを既に提供しておらず、WHQL署名を得るにはHLKテストの実施・提出が前提となります。本ドライバは当初キーボード/マウス両クラスに対応する単一バイナリ（`Class=System`）でしたが、HLKでのテスト対象が69件と膨大になることが判明したため、キーボード用（`keyboard.sys`, `Class=Keyboard`）・マウス用（`mouse.sys`, `Class=Mouse`）の2ドライバに分割しました。
 
 ## アーキテクチャ概要
 
-- KMDF（Kernel-Mode Driver Framework）ベースのフィルタドライバ
-- キーボード/マウスのデバイスクラススタックに上位フィルタとしてアタッチし、`IOCTL_INTERNAL_*_CONNECT` によるクラスサービスコールバックの差し替えで入力を捕捉/再注入
+- KMDF（Kernel-Mode Driver Framework）ベースのフィルタドライバ。キーボード用（`keyboard.sys`, `Class=Keyboard`）・マウス用（`mouse.sys`, `Class=Mouse`）の2バイナリで構成（`driver/common/`の共通ロジックを両方から参照）
+- それぞれ対応するデバイスクラススタックに上位フィルタとしてアタッチし、`IOCTL_INTERNAL_*_CONNECT` によるクラスサービスコールバックの差し替えで入力を捕捉/再注入
 - 物理デバイスの有無によらず常時20個（キーボード×10、マウス×10）のコントロールデバイスを公開し、上位のユーザーモードライブラリとの互換性を維持
 - 詳細なプロトコル仕様は [`docs/PROTOCOL.md`](docs/PROTOCOL.md) を参照
 - 互換性のため当面はoblitum/Interceptionライブラリの仕様どおりキーボード10台・マウス10台（計20デバイス）が上限ですが、将来的には既存クライアントとの後方互換を保ったまま、この上限を撤廃する拡張を計画しています
@@ -62,17 +62,30 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ## インストール
 
-配布されたzip（`OpenInputBridge.zip`）を展開すると、`drivers\`（`.inf`/`.cat`/`.sys`）と
+配布されたzip（`OpenInputBridge.zip`）を展開すると、`keyboard\`・`mouse\`（それぞれ`.inf`/`.cat`/`.sys`）と
 `OpenInputBridgeSetup.exe` が含まれています。
 
 1. `OpenInputBridgeSetup.exe` を実行します（管理者権限が必要なマニフェストが付与されているため、
-   実行すると自動的にUACの昇格プロンプトが表示されます）。
+   実行すると自動的にUACの昇格プロンプトが表示されます）。引数なしでキーボード用・マウス用の
+   両方がインストールされます（`keyboard`/`mouse`を引数に指定すると片方だけも可能）。
 2. 完了後、**再起動してください。** `UpperFilters`（デバイスクラスへのフィルタ登録）はOS起動時の
    デバイススタック構築時にのみ反映されるため、再起動なしでは有効になりません。
-3. `sc query OpenInputBridge` で `SERVICE_KERNEL_DRIVER` / `SERVICE_SYSTEM_START` として
-   登録されていることを確認できます。
+3. `sc query OpenInputBridgeKeyboard` / `sc query OpenInputBridgeMouse` で、それぞれ
+   `SERVICE_KERNEL_DRIVER` / `SERVICE_SYSTEM_START` として登録されていることを確認できます。
 
-アンインストールは `OpenInputBridgeSetup.exe /uninstall` を管理者権限で実行し、同様に再起動してください。
+アンインストールは `OpenInputBridgeSetup.exe /uninstall` を管理者権限で実行し、同様に再起動してください
+（こちらも引数なしで両方、`keyboard`/`mouse`指定で片方だけアンインストールできます）。
+
+**キーボード/マウスの配分を変える場合**: 既定では`\\.\interception00`〜`19`の20個を
+キーボード10個・マウス10個に均等配分しますが、`--slots=N`（`keyboard`/`mouse`指定と併用、
+インストール時のみ）でこの配分を変更できます。例えば`OpenInputBridgeSetup.exe install
+keyboard --slots=15`とすると、キーボード15個・マウス5個の配分になり、もう片方が
+既にインストール済みならその配分も自動的に追随します。この配分は本家Interceptionの
+ライブラリが前提とする固定の10/10分割とは異なるため、**古い（この仕様を知らない）
+クライアントは既定以外の配分では正しく動作しません**（クラッシュはしませんが、
+境界がズレた範囲を誤ったデバイス種別として扱い、捕捉できない・データを誤解釈する、
+といったサイレントな不具合になります）。詳細は
+[`docs/PROTOCOL.md`](docs/PROTOCOL.md)を参照してください。
 
 `OpenInputBridgeSetup.exe` は静的にCRTをリンクしているため、別途Visual C++
 再頒布可能パッケージをインストールする必要はありません。
@@ -119,8 +132,9 @@ msbuild OpenInputBridge.sln /p:Configuration=Release /p:Platform=x64
 
 同じ環境変数を継いだまま `devenv OpenInputBridge.sln` でVisual Studio IDEを開いても操作できます。
 
-`ReleaseWHQL`構成を使う前に、HLK/WHQL申請から返ってきた `OpenInputBridge.inf` / `openinputbridge.cat` /
-`OpenInputBridge.sys` を `packaging\Signed\Drivers\` に手動でコピーしておいてください
+`ReleaseWHQL`構成を使う前に、HLK/WHQL申請から返ってきた `keyboard.inf`/`keyboard.cat`/`keyboard.sys` を
+`packaging\Signed\Drivers\keyboard\` に、`mouse.inf`/`mouse.cat`/`mouse.sys` を
+`packaging\Signed\Drivers\mouse\` に、それぞれ手動でコピーしておいてください
 （`Signed\Symbol\` はこちらの手元のビルドから毎回自動で更新されます）。
 
 署名・パッケージングの内部的な処理内容（個別のnmakeターゲット等）は `packaging/sign.mak` のコメントを

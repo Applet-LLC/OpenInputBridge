@@ -6,6 +6,12 @@
 // happens on PnP arrival/removal (infrequent), and lookups (OibSlotAcquireFilterDevice) hold
 // the lock only long enough to copy a handle and take a reference, never while touching the
 // filter device itself.
+//
+// The table is always sized at OIB_TOTAL_DEVICE_SLOT_COUNT (20) regardless of which binary
+// this is compiled into — only the first OibActiveSlotCount entries are ever initialized/used
+// (see OibSlotTableInitialize), so no dynamic allocation is needed even though the split
+// between keyboard.sys and mouse.sys is a runtime, registry-configured value (docs/DECISIONS.md
+// 2026-08-02 entry) rather than a compile-time constant.
 
 #include "slots.h"
 
@@ -19,17 +25,24 @@ typedef struct _OIB_SLOT_ENTRY
     LIST_ENTRY OpenInstances;
 } OIB_SLOT_ENTRY;
 
-static OIB_SLOT_ENTRY OibSlotTable[OIB_DEVICE_SLOT_COUNT];
+static OIB_SLOT_ENTRY OibSlotTable[OIB_TOTAL_DEVICE_SLOT_COUNT];
 static WDFSPINLOCK OibSlotTableLock;
+
+// This binary's own share of the 20 slots (0..OIB_TOTAL_DEVICE_SLOT_COUNT), set once by
+// OibSlotTableInitialize. Only OibSlotTable[0..OibActiveSlotCount-1] is ever touched.
+static ULONG OibActiveSlotCount;
 
 NTSTATUS
 OibSlotTableInitialize(
-    _In_ WDFDRIVER Driver
+    _In_ WDFDRIVER Driver,
+    _In_ ULONG ActiveSlotCount
     )
 {
     NTSTATUS status;
     WDF_OBJECT_ATTRIBUTES attributes;
     ULONG index;
+
+    OibActiveSlotCount = ActiveSlotCount;
 
     RtlZeroMemory(OibSlotTable, sizeof(OibSlotTable));
 
@@ -41,7 +54,7 @@ OibSlotTableInitialize(
         return status;
     }
 
-    for (index = 0; index < OIB_DEVICE_SLOT_COUNT; index++) {
+    for (index = 0; index < OibActiveSlotCount; index++) {
         InitializeListHead(&OibSlotTable[index].OpenInstances);
 
         WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
@@ -58,13 +71,10 @@ OibSlotTableInitialize(
 
 NTSTATUS
 OibSlotAssign(
-    _In_ BOOLEAN IsKeyboard,
     _In_ WDFDEVICE FilterDevice,
     _Out_ ULONG *AssignedSlotIndex
     )
 {
-    ULONG start = IsKeyboard ? 0 : OIB_KEYBOARD_SLOT_COUNT;
-    ULONG end = IsKeyboard ? OIB_KEYBOARD_SLOT_COUNT : OIB_DEVICE_SLOT_COUNT;
     ULONG index;
     NTSTATUS status = STATUS_DEVICE_NOT_READY;
 
@@ -72,7 +82,7 @@ OibSlotAssign(
 
     WdfSpinLockAcquire(OibSlotTableLock);
 
-    for (index = start; index < end; index++) {
+    for (index = 0; index < OibActiveSlotCount; index++) {
         if (OibSlotTable[index].FilterDevice == NULL) {
             OibSlotTable[index].FilterDevice = FilterDevice;
             *AssignedSlotIndex = index;
@@ -86,12 +96,24 @@ OibSlotAssign(
     return status;
 }
 
+ULONG
+OibGetConfiguredKeyboardSlotCount(
+    VOID
+    )
+{
+#if defined(OIB_BUILD_KEYBOARD)
+    return OibActiveSlotCount;
+#elif defined(OIB_BUILD_MOUSE)
+    return OIB_TOTAL_DEVICE_SLOT_COUNT - OibActiveSlotCount;
+#endif
+}
+
 VOID
 OibSlotRelease(
     _In_ ULONG SlotIndex
     )
 {
-    if (SlotIndex >= OIB_DEVICE_SLOT_COUNT) {
+    if (SlotIndex >= OibActiveSlotCount) {
         return;
     }
 
@@ -108,7 +130,7 @@ OibSlotAcquireFilterDevice(
 {
     WDFDEVICE device;
 
-    if (SlotIndex >= OIB_DEVICE_SLOT_COUNT) {
+    if (SlotIndex >= OibActiveSlotCount) {
         *FilterDevice = NULL;
         return STATUS_INVALID_PARAMETER;
     }
@@ -141,7 +163,7 @@ OibSlotAttachFileContext(
     _In_ PLIST_ENTRY FileContextLinkage
     )
 {
-    if (SlotIndex >= OIB_DEVICE_SLOT_COUNT) {
+    if (SlotIndex >= OibActiveSlotCount) {
         return;
     }
 
@@ -156,7 +178,7 @@ OibSlotDetachFileContext(
     _In_ PLIST_ENTRY FileContextLinkage
     )
 {
-    if (SlotIndex >= OIB_DEVICE_SLOT_COUNT) {
+    if (SlotIndex >= OibActiveSlotCount) {
         return;
     }
 
@@ -170,7 +192,7 @@ OibSlotLockInstances(
     _In_ ULONG SlotIndex
     )
 {
-    NT_ASSERT(SlotIndex < OIB_DEVICE_SLOT_COUNT);
+    NT_ASSERT(SlotIndex < OibActiveSlotCount);
     WdfSpinLockAcquire(OibSlotTable[SlotIndex].InstancesLock);
 }
 
@@ -179,7 +201,7 @@ OibSlotUnlockInstances(
     _In_ ULONG SlotIndex
     )
 {
-    NT_ASSERT(SlotIndex < OIB_DEVICE_SLOT_COUNT);
+    NT_ASSERT(SlotIndex < OibActiveSlotCount);
     WdfSpinLockRelease(OibSlotTable[SlotIndex].InstancesLock);
 }
 
@@ -188,6 +210,6 @@ OibSlotGetInstancesListHead(
     _In_ ULONG SlotIndex
     )
 {
-    NT_ASSERT(SlotIndex < OIB_DEVICE_SLOT_COUNT);
+    NT_ASSERT(SlotIndex < OibActiveSlotCount);
     return &OibSlotTable[SlotIndex].OpenInstances;
 }

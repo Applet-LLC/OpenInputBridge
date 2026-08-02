@@ -12,6 +12,24 @@
 
 namespace OpenInputBridge {
 
+const DriverInfo& GetDriverInfo(DriverType type)
+{
+    static const DriverInfo kKeyboard = {
+        L"keyboard",
+        L"OpenInputBridgeKeyboard",
+        L"{4D36E96B-E325-11CE-BFC1-08002BE10318}",
+        L"kbdclass",
+    };
+    static const DriverInfo kMouse = {
+        L"mouse",
+        L"OpenInputBridgeMouse",
+        L"{4D36E96F-E325-11CE-BFC1-08002BE10318}",
+        L"mouclass",
+    };
+
+    return (type == DriverType::Keyboard) ? kKeyboard : kMouse;
+}
+
 bool IsRunningElevated()
 {
     HANDLE token = nullptr;
@@ -278,6 +296,58 @@ bool ModifyUpperFilters(const wchar_t* classGuidString, const wchar_t* entryName
 
     RegCloseKey(classKey);
     return succeeded;
+}
+
+bool SetKeyboardSlotCount(DriverType type, ULONG keyboardSlotCount)
+{
+    std::wstring parametersKeyPath =
+        std::wstring(L"SYSTEM\\CurrentControlSet\\Services\\") + GetDriverInfo(type).ServiceName + L"\\Parameters";
+
+    HKEY parametersKey = nullptr;
+    LONG result = RegCreateKeyExW(
+        HKEY_LOCAL_MACHINE, parametersKeyPath.c_str(), 0, nullptr,
+        REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &parametersKey, nullptr
+        );
+
+    if (result != ERROR_SUCCESS) {
+        return false;
+    }
+
+    result = RegSetValueExW(
+        parametersKey, KeyboardSlotCountValueName, 0, REG_DWORD,
+        reinterpret_cast<const BYTE*>(&keyboardSlotCount), sizeof(keyboardSlotCount)
+        );
+
+    RegCloseKey(parametersKey);
+    return result == ERROR_SUCCESS;
+}
+
+bool TryGetKeyboardSlotCount(DriverType type, ULONG& outKeyboardSlotCount)
+{
+    std::wstring parametersKeyPath =
+        std::wstring(L"SYSTEM\\CurrentControlSet\\Services\\") + GetDriverInfo(type).ServiceName + L"\\Parameters";
+
+    HKEY parametersKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, parametersKeyPath.c_str(), 0, KEY_QUERY_VALUE, &parametersKey) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    ULONG value = 0;
+    DWORD size = sizeof(value);
+    DWORD type_ = 0;
+    LONG result = RegQueryValueExW(
+        parametersKey, KeyboardSlotCountValueName, nullptr, &type_,
+        reinterpret_cast<LPBYTE>(&value), &size
+        );
+
+    RegCloseKey(parametersKey);
+
+    if (result != ERROR_SUCCESS || type_ != REG_DWORD) {
+        return false;
+    }
+
+    outKeyboardSlotCount = value;
+    return true;
 }
 
 } // namespace OpenInputBridge

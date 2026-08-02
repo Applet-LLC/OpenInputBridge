@@ -2,16 +2,18 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// The 8 control-device IOCTLs, plus the per-open-instance (WDFFILEOBJECT) state they operate
-// on: filter bitmask, "unempty" event, and capture queue. Codes and semantics are defined in
-// docs/PROTOCOL.md, derived from reading (unmodified, LGPL)
-// third_party/interception/library/interception.c — see docs/CLEAN_ROOM.md for what was and
-// wasn't consulted to arrive at these definitions.
+// The 8 control-device IOCTLs matching the original wire protocol, plus 2 OpenInputBridge-only
+// extensions (IOCTL_GET_KEYBOARD_SLOT_COUNT/IOCTL_GET_DRIVER_IDENTITY — see below), plus the
+// per-open-instance (WDFFILEOBJECT) state they operate on: filter bitmask, "unempty" event,
+// and capture queue. Codes and semantics for the original 8 are defined in docs/PROTOCOL.md,
+// derived from reading (unmodified, LGPL) third_party/interception/library/interception.c —
+// see docs/CLEAN_ROOM.md for what was and wasn't consulted to arrive at these definitions.
 
 #pragma once
 
 #include "driver.h"
 #include "slots.h"
+#include "version.h"
 #include <ntddkbd.h>
 #include <ntddmou.h>
 
@@ -23,6 +25,29 @@
 #define IOCTL_WRITE           CTL_CODE(FILE_DEVICE_UNKNOWN, 0x820, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_READ            CTL_CODE(FILE_DEVICE_UNKNOWN, 0x840, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define IOCTL_GET_HARDWARE_ID CTL_CODE(FILE_DEVICE_UNKNOWN, 0x880, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+// --- OpenInputBridge-only extensions (not part of the original Interception wire protocol) ---
+//
+// Let a new client/library discover, over the same handle it already has open, (a) where the
+// keyboard/mouse boundary currently sits (docs/DECISIONS.md's 2026-08-02 entry — the split is
+// registry-configurable and no longer always 10/10), and (b) whether it's actually talking to
+// OpenInputBridge at all (as opposed to the real Interception driver, which does not implement
+// either of these codes). See docs/PROTOCOL.md for the full discussion, including the
+// not-yet-validated assumption that the real driver rejects unrecognized IOCTLs cleanly.
+#define IOCTL_GET_KEYBOARD_SLOT_COUNT CTL_CODE(FILE_DEVICE_UNKNOWN, 0x900, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define IOCTL_GET_DRIVER_IDENTITY     CTL_CODE(FILE_DEVICE_UNKNOWN, 0xA00, METHOD_BUFFERED, FILE_ANY_ACCESS)
+
+// "OIB1" read as a little-endian ULONG (bytes 'O','I','B','1').
+#define OIB_DRIVER_IDENTITY_SIGNATURE 0x3142494FUL
+
+// Output buffer for IOCTL_GET_DRIVER_IDENTITY.
+typedef struct _OIB_DRIVER_IDENTITY
+{
+    ULONG   Signature;      // OIB_DRIVER_IDENTITY_SIGNATURE — a match confirms OpenInputBridge.
+    ULONG   VersionMajor;   // OIB_VERSION_MAJOR (version.h) at build time.
+    ULONG   VersionMinor;   // OIB_VERSION_MINOR (version.h) at build time.
+    BOOLEAN IsKeyboard;     // Whether this handle is served by keyboard.sys (TRUE) or mouse.sys.
+} OIB_DRIVER_IDENTITY, *POIB_DRIVER_IDENTITY;
 
 // Number of stroke records the capture queue can hold before OibDispatch{Keyboard,Mouse}Stroke
 // starts dropping the oldest queued record to make room for new ones. A named, single-point
@@ -86,6 +111,12 @@ EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL OibCtlEvtIoDeviceControl;
 // filter FDO's lower PDO and returns that PDO's hardware ID property, truncated to whatever
 // fits in the caller's output buffer.
 VOID OibCtlHandleGetHardwareId(_In_ WDFREQUEST Request, _In_ WDFDEVICE ControlDevice, _In_ size_t OutputBufferLength);
+
+// IOCTL_GET_KEYBOARD_SLOT_COUNT / IOCTL_GET_DRIVER_IDENTITY: OpenInputBridge-only extensions —
+// see the comment above their CTL_CODE definitions. Driver-global info, independent of which
+// slot (if any) this handle's control device is assigned to.
+VOID OibCtlHandleGetKeyboardSlotCount(_In_ WDFREQUEST Request, _In_ size_t OutputBufferLength);
+VOID OibCtlHandleGetDriverIdentity(_In_ WDFREQUEST Request, _In_ size_t OutputBufferLength);
 
 // IOCTL_SET_FILTER / IOCTL_GET_FILTER (M3): per-file-object filter bitmask.
 VOID OibCtlHandleSetFilter(_In_ WDFREQUEST Request, _In_ WDFFILEOBJECT FileObject);

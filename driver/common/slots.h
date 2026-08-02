@@ -2,31 +2,37 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// Global slot table mapping the OIB_DEVICE_SLOT_COUNT always-present control devices
-// (\Device\interceptionNN) to the filter FDO currently attached to that physical
-// keyboard/mouse, if any. Slots 0..OIB_KEYBOARD_SLOT_COUNT-1 are keyboards, the remainder
-// are mice. This mapping has no direct precedent in Microsoft's kbfiltr/moufiltr samples
-// (see project plan, "M2 / slots.c" — highest design-risk piece of this driver) because
-// those samples assume one filter instance per one exposed device, whereas here the control
-// devices must exist and stay openable independent of physical device presence.
+// Global slot table mapping this binary's share of the 20 always-present control devices
+// (\Device\interceptionNN — see driver.h's comment on OIB_BUILD_KEYBOARD/OIB_BUILD_MOUSE and
+// docs/DECISIONS.md's 2026-08-02 entry) to the filter FDO currently attached to that physical
+// keyboard/mouse, if any. Every slot in a given binary's table is the same kind — there is no
+// keyboard/mouse split within one table anymore, unlike before the driver was split in two
+// (docs/DECISIONS.md's 2026-07-30 entry) — so this file has no compile-time knowledge of
+// keyboard vs. mouse at all; it only knows how many slots it has (ActiveSlotCount, resolved at
+// runtime by driver.c from the registry) and hands out indices 0..ActiveSlotCount-1. This
+// mapping has no direct precedent in Microsoft's kbfiltr/moufiltr samples (see project plan,
+// "M2 / slots.c" — highest design-risk piece of this driver) because those samples assume one
+// filter instance per one exposed device, whereas here the control devices must exist and
+// stay openable independent of physical device presence.
 
 #pragma once
 
 #include "driver.h"
 
 // Sentinel meaning "not assigned to any slot". Distinct from any real slot index
-// (0..OIB_DEVICE_SLOT_COUNT-1), including 0 — a filter FDO's context field holding this must
-// not be left at its zero-initialized default and mistaken for slot 0.
+// (0..ActiveSlotCount-1, see OibSlotTableInitialize), including 0 — a filter FDO's context
+// field holding this must not be left at its zero-initialized default and mistaken for slot 0.
 #define OIB_SLOT_INDEX_NONE ((ULONG)-1)
 
 // Must be called once from DriverEntry, before PnP can start calling AddDevice or the control
-// devices can start receiving I/O.
-NTSTATUS OibSlotTableInitialize(_In_ WDFDRIVER Driver);
+// devices can start receiving I/O. ActiveSlotCount (0..OIB_TOTAL_DEVICE_SLOT_COUNT) is this
+// binary's own share of the 20 slots, as resolved by driver.c from the registry.
+NTSTATUS OibSlotTableInitialize(_In_ WDFDRIVER Driver, _In_ ULONG ActiveSlotCount);
 
-// Assigns FilterDevice to the first free slot of the requested kind (keyboard:
-// 0..OIB_KEYBOARD_SLOT_COUNT-1, mouse: OIB_KEYBOARD_SLOT_COUNT..OIB_DEVICE_SLOT_COUNT-1) and
-// returns it via *AssignedSlotIndex. If every slot of that kind is already taken (an 11th
-// keyboard or mouse — upstream's own wire protocol hard-caps at 10 of each kind, see
+// Assigns FilterDevice to the first free slot in this binary's table (0..ActiveSlotCount-1,
+// see OibSlotTableInitialize) and returns it via *AssignedSlotIndex. If every slot is already
+// taken (more physical keyboards/mice arrived than this binary was configured with — see
+// docs/DECISIONS.md's 2026-08-02 entry on the configurable keyboard/mouse split, and
 // docs/PROTOCOL.md), returns STATUS_DEVICE_NOT_READY and sets *AssignedSlotIndex to
 // OIB_SLOT_INDEX_NONE; callers should treat this as graceful degradation (the filter FDO
 // still attaches and passes input through normally, it's just unreachable via any
@@ -35,7 +41,13 @@ NTSTATUS OibSlotTableInitialize(_In_ WDFDRIVER Driver);
 // Does not take a reference on FilterDevice — the caller's own EvtCleanupCallback is expected
 // to call OibSlotRelease (unconditionally, even with OIB_SLOT_INDEX_NONE — see below) before
 // the device is destroyed.
-NTSTATUS OibSlotAssign(_In_ BOOLEAN IsKeyboard, _In_ WDFDEVICE FilterDevice, _Out_ ULONG *AssignedSlotIndex);
+NTSTATUS OibSlotAssign(_In_ WDFDEVICE FilterDevice, _Out_ ULONG *AssignedSlotIndex);
+
+// Returns the keyboard side's configured share of the 20 slots (0..OIB_TOTAL_DEVICE_SLOT_COUNT
+// — see driver.h's OIB_KEYBOARD_SLOT_COUNT_VALUE_NAME), derived from this binary's own
+// ActiveSlotCount (set by OibSlotTableInitialize) and OIB_IS_KEYBOARD_BUILD: no separate state
+// to keep in sync. Backs IOCTL_GET_KEYBOARD_SLOT_COUNT (ioctl.h/docs/PROTOCOL.md).
+ULONG OibGetConfiguredKeyboardSlotCount(VOID);
 
 // Clears SlotIndex's assignment. Safe (a no-op) when SlotIndex is OIB_SLOT_INDEX_NONE, so
 // filter FDO cleanup callbacks can call this unconditionally without checking whether

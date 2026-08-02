@@ -2,18 +2,26 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// M0 (driver skeleton): DriverEntry creates the WDFDRIVER and the 20 always-present control
-// devices. Filter FDO attach (EvtDeviceAdd, IOCTL_INTERNAL_*_CONNECT hijack) lands in M1
-// (kbdfilter.c / mousefilter.c). Slot table lands in M2 (slots.c). IOCTL handling lands in
-// M3/M4/M5 (ioctl.c). See the project plan for the full milestone list.
+// M0 (driver skeleton): DriverEntry creates the WDFDRIVER and this binary's share of the 20
+// always-present control devices. Filter FDO attach (EvtDeviceAdd, IOCTL_INTERNAL_*_CONNECT
+// hijack) lands in M1 (kbdfilter.c / mousefilter.c). Slot table lands in M2 (slots.c). IOCTL
+// handling lands in M3/M4/M5 (ioctl.c). See the project plan for the full milestone list.
+//
+// Shared verbatim between keyboard.vcxproj and mouse.vcxproj (see driver.h's comment on
+// OIB_BUILD_KEYBOARD/OIB_BUILD_MOUSE) — the only per-binary logic is which single filter type
+// gets attached below, gated on the same two build-time defines.
 
 #include "driver.h"
-#include "kbdfilter.h"
-#include "mousefilter.h"
 #include "ioctl.h"
 #include "slots.h"
 
 #include <ntstrsafe.h>
+
+#if defined(OIB_BUILD_KEYBOARD)
+#include "kbdfilter.h"
+#elif defined(OIB_BUILD_MOUSE)
+#include "mousefilter.h"
+#endif
 
 // Grants SYSTEM and built-in Administrators full access, and Everyone (World) generic
 // read/write. The upstream library opens each \\.\interceptionNN with plain GENERIC_READ
@@ -22,15 +30,53 @@
 // revisit if M5's black-box observation of the real driver's ACL turns out to differ.
 static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)";
 
-// Keyboard/Mouse device setup class GUIDs (see docs/PROTOCOL.md and OpenInputBridge.inx).
-// Used to tell apart which class stack OibEvtDeviceAdd is being called for, since this one
-// driver is registered as an upper filter under both classes' UpperFilters (installer/).
-// IoGetDeviceProperty(..., DevicePropertyClassGuid, ...) returns the class GUID as a
-// printable string (not a binary GUID), so these are compared as strings too.
-static const UNICODE_STRING OibKeyboardClassGuidString =
+// This binary's own device setup class GUID (see docs/PROTOCOL.md and keyboard.inx/mouse.inx) —
+// used to confirm OibEvtDeviceAdd is being called for the class stack this binary is registered
+// as an upper filter under (installer/), before attaching anything. IoGetDeviceProperty(...,
+// DevicePropertyClassGuid, ...) returns the class GUID as a printable string (not a binary
+// GUID), so this is compared as a string too.
+#if defined(OIB_BUILD_KEYBOARD)
+static const UNICODE_STRING OibTargetClassGuidString =
     RTL_CONSTANT_STRING(L"{4D36E96B-E325-11CE-BFC1-08002BE10318}");
-static const UNICODE_STRING OibMouseClassGuidString =
+#elif defined(OIB_BUILD_MOUSE)
+static const UNICODE_STRING OibTargetClassGuidString =
     RTL_CONSTANT_STRING(L"{4D36E96F-E325-11CE-BFC1-08002BE10318}");
+#endif
+
+// Reads the keyboard side's share of the 20 slots (OIB_KEYBOARD_SLOT_COUNT_VALUE_NAME under
+// this service's own \Parameters key — see driver.h). Both the keyboard and mouse services'
+// registrations carry the same value (installer/ keeps them in sync), so either binary can
+// read it directly and know exactly where the boundary is, without asking the other one.
+// Falls back to OIB_DEFAULT_KEYBOARD_SLOT_COUNT if the key/value is absent, unreadable, or out
+// of range — this is what makes the feature purely opt-in (an unconfigured system behaves
+// exactly as it did before this existed: 10 keyboard / 10 mouse).
+static
+ULONG
+OibReadConfiguredKeyboardSlotCount(
+    _In_ WDFDRIVER Driver
+    )
+{
+    NTSTATUS status;
+    WDFKEY parametersKey;
+    DECLARE_CONST_UNICODE_STRING(valueName, OIB_KEYBOARD_SLOT_COUNT_VALUE_NAME);
+    ULONG value;
+
+    status = WdfDriverOpenParametersRegistryKey(
+        Driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &parametersKey
+        );
+    if (!NT_SUCCESS(status)) {
+        return OIB_DEFAULT_KEYBOARD_SLOT_COUNT;
+    }
+
+    status = WdfRegistryQueryULong(parametersKey, &valueName, &value);
+    WdfRegistryClose(parametersKey);
+
+    if (!NT_SUCCESS(status) || value > OIB_TOTAL_DEVICE_SLOT_COUNT) {
+        return OIB_DEFAULT_KEYBOARD_SLOT_COUNT;
+    }
+
+    return value;
+}
 
 NTSTATUS
 DriverEntry(
@@ -42,6 +88,9 @@ DriverEntry(
     WDF_DRIVER_CONFIG config;
     WDF_OBJECT_ATTRIBUTES attributes;
     WDFDRIVER driver;
+    ULONG keyboardSlotCount;
+    ULONG activeSlotCount;
+    ULONG deviceNumberBase;
 
     WDF_DRIVER_CONFIG_INIT(&config, OibEvtDeviceAdd);
 
@@ -60,17 +109,29 @@ DriverEntry(
         return status;
     }
 
+    // Resolve this binary's own share of the 20 slots (see docs/DECISIONS.md's 2026-08-02
+    // entry) before touching the slot table or creating any control device.
+    keyboardSlotCount = OibReadConfiguredKeyboardSlotCount(driver);
+#if defined(OIB_BUILD_KEYBOARD)
+    activeSlotCount = keyboardSlotCount;
+    deviceNumberBase = 0;
+#elif defined(OIB_BUILD_MOUSE)
+    activeSlotCount = OIB_TOTAL_DEVICE_SLOT_COUNT - keyboardSlotCount;
+    deviceNumberBase = keyboardSlotCount;
+#endif
+
     // Must precede OibCreateControlDevices: once the control devices exist, I/O could in
     // principle start arriving on them (or PnP could start calling OibEvtDeviceAdd) before
     // DriverEntry returns, and both paths touch the slot table.
-    status = OibSlotTableInitialize(driver);
+    status = OibSlotTableInitialize(driver, activeSlotCount);
     if (!NT_SUCCESS(status)) {
         return status;
     }
 
-    // Create all OIB_DEVICE_SLOT_COUNT control devices unconditionally before DriverEntry
-    // returns (see OibCreateControlDevices for why partial success is not acceptable here).
-    status = OibCreateControlDevices(driver);
+    // Create all of this binary's ActiveSlotCount control devices unconditionally before
+    // DriverEntry returns (see OibCreateControlDevices for why partial success is not
+    // acceptable here).
+    status = OibCreateControlDevices(driver, activeSlotCount, deviceNumberBase);
 
     return status;
 }
@@ -87,11 +148,11 @@ OibEvtDeviceAdd(
     ULONG resultLength = 0;
     UNICODE_STRING classGuidString;
 
-    // PnP calls this once per keyboard/mouse stack as devices are enumerated, since this
-    // driver is registered as an upper filter under both the Keyboard and Mouse device setup
-    // classes (installer/). Determine which class this particular stack belongs to before
-    // creating anything, per the pattern in Microsoft's kbfiltr/moufiltr samples ("query the
-    // device properties ... and based on that, decide to create a filter device object").
+    // PnP calls this once per stack as devices are enumerated, since this driver is registered
+    // as an upper filter under exactly one device setup class (installer/) — Keyboard for
+    // keyboard.sys, Mouse for mouse.sys. Confirm the class before creating anything, per the
+    // pattern in Microsoft's kbfiltr/moufiltr samples ("query the device properties ... and
+    // based on that, decide to create a filter device object").
     pdo = WdfFdoInitWdmGetPhysicalDevice(DeviceInit);
     if (pdo == NULL) {
         return STATUS_INVALID_DEVICE_REQUEST;
@@ -110,15 +171,15 @@ OibEvtDeviceAdd(
 
     RtlInitUnicodeString(&classGuidString, classGuidBuffer);
 
-    if (RtlEqualUnicodeString(&classGuidString, &OibKeyboardClassGuidString, TRUE)) {
+    if (RtlEqualUnicodeString(&classGuidString, &OibTargetClassGuidString, TRUE)) {
+#if defined(OIB_BUILD_KEYBOARD)
         return OibKbdEvtDeviceAdd(Driver, DeviceInit);
-    }
-
-    if (RtlEqualUnicodeString(&classGuidString, &OibMouseClassGuidString, TRUE)) {
+#elif defined(OIB_BUILD_MOUSE)
         return OibMouEvtDeviceAdd(Driver, DeviceInit);
+#endif
     }
 
-    // Not a class we filter (shouldn't normally happen given how this driver is installed,
+    // Not the class we filter (shouldn't normally happen given how this driver is installed,
     // but defensively: per the kbfiltr sample's own guidance, if we're not interested in
     // filtering this instance we simply return success without creating a framework device).
     return STATUS_SUCCESS;
@@ -136,7 +197,9 @@ OibEvtDriverContextCleanup(
 
 NTSTATUS
 OibCreateControlDevices(
-    _In_ WDFDRIVER Driver
+    _In_ WDFDRIVER Driver,
+    _In_ ULONG ActiveSlotCount,
+    _In_ ULONG DeviceNumberBase
     )
 {
     NTSTATUS status;
@@ -145,13 +208,14 @@ OibCreateControlDevices(
 
     RtlInitUnicodeString(&sddlString, OibControlDeviceSddl);
 
-    // Must create all OIB_DEVICE_SLOT_COUNT devices unconditionally, independent of how many
+    // Must create all ActiveSlotCount devices unconditionally, independent of how many
     // physical keyboards/mice are attached: the unmodified upstream interception_create_context()
-    // fails outright if any one of its 20 CreateFileA calls fails (see docs/PROTOCOL.md). If
-    // any slot below fails, we return failure and let DriverEntry fail the load — WDF tears down
-    // the already-created control devices (parented to the WDFDRIVER) as part of that unwind, so
-    // there is no partial, half-usable device set left behind.
-    for (index = 0; index < OIB_DEVICE_SLOT_COUNT; index++) {
+    // fails outright if any one of its 20 CreateFileA calls (across both binaries) fails (see
+    // docs/PROTOCOL.md). If any slot below fails, we return failure and let DriverEntry fail
+    // the load — WDF tears down the already-created control devices (parented to the
+    // WDFDRIVER) as part of that unwind, so there is no partial, half-usable device set left
+    // behind.
+    for (index = 0; index < ActiveSlotCount; index++) {
         PWDFDEVICE_INIT deviceInit;
         WDF_OBJECT_ATTRIBUTES attributes;
         WDF_OBJECT_ATTRIBUTES fileAttributes;
@@ -168,7 +232,7 @@ OibCreateControlDevices(
             deviceNameBuffer,
             sizeof(deviceNameBuffer),
             L"\\Device\\interception%02lu",
-            index
+            index + DeviceNumberBase
             );
         if (!NT_SUCCESS(status)) {
             return status;
@@ -205,7 +269,11 @@ OibCreateControlDevices(
 
         context = OibGetControlDeviceContext(controlDevice);
         context->SlotIndex = index;
-        context->IsKeyboard = (BOOLEAN)(index < OIB_KEYBOARD_SLOT_COUNT);
+        // Every slot in this binary's table is the same kind (see driver.h's comment on
+        // OIB_BUILD_KEYBOARD/OIB_BUILD_MOUSE) — not index-dependent the way it was when one
+        // driver's table held both kinds, which also avoids C4296 (index < 0 is always false
+        // when OIB_KEYBOARD_SLOT_COUNT is 0, i.e. in the mouse build).
+        context->IsKeyboard = OIB_IS_KEYBOARD_BUILD;
 
         WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchParallel);
         queueConfig.EvtIoDeviceControl = OibCtlEvtIoDeviceControl;
@@ -219,7 +287,7 @@ OibCreateControlDevices(
             symlinkNameBuffer,
             sizeof(symlinkNameBuffer),
             L"\\DosDevices\\interception%02lu",
-            index
+            index + DeviceNumberBase
             );
         if (!NT_SUCCESS(status)) {
             return status;

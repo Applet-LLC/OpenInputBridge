@@ -8,8 +8,17 @@
 // IOCTL_SET_PRECEDENCE/GET_PRECEDENCE (M5 — see the caveat on those declarations in ioctl.h).
 
 #include "ioctl.h"
+
+// OibCtlHandleWrite's final-delivery step (below) needs the filter FDO's own context type to
+// reach the saved UpperConnectData — only one of the two ever applies per binary (see
+// driver.h's comment on OIB_BUILD_KEYBOARD/OIB_BUILD_MOUSE), but it's a genuine compile-time
+// dependency, unlike the rest of this file's IsKeyboard-branching, which stays runtime code
+// unchanged between the two binaries.
+#if defined(OIB_BUILD_KEYBOARD)
 #include "kbdfilter.h"
+#elif defined(OIB_BUILD_MOUSE)
 #include "mousefilter.h"
+#endif
 
 static VOID OibFileContextQueuePush(_Inout_ POIB_FILE_CONTEXT FileContext, _In_ PVOID StrokeData, _In_ SIZE_T StrokeSize, _Out_ PBOOLEAN BecameNonEmpty);
 static ULONG OibFileContextQueueDrain(_Inout_ POIB_FILE_CONTEXT FileContext, _Out_writes_bytes_(OutputBufferSize) PVOID OutputBuffer, _In_ SIZE_T OutputBufferSize, _In_ SIZE_T StrokeSize);
@@ -36,6 +45,14 @@ OibCtlEvtIoDeviceControl(
     switch (IoControlCode) {
     case IOCTL_GET_HARDWARE_ID:
         OibCtlHandleGetHardwareId(Request, WdfIoQueueGetDevice(Queue), OutputBufferLength);
+        return;
+
+    case IOCTL_GET_KEYBOARD_SLOT_COUNT:
+        OibCtlHandleGetKeyboardSlotCount(Request, OutputBufferLength);
+        return;
+
+    case IOCTL_GET_DRIVER_IDENTITY:
+        OibCtlHandleGetDriverIdentity(Request, OutputBufferLength);
         return;
 
     case IOCTL_SET_FILTER:
@@ -150,6 +167,55 @@ OibCtlHandleGetHardwareId(
 }
 
 VOID
+OibCtlHandleGetKeyboardSlotCount(
+    _In_ WDFREQUEST Request,
+    _In_ size_t OutputBufferLength
+    )
+{
+    NTSTATUS status;
+    PULONG outputValue;
+    size_t outputBufferSize;
+
+    UNREFERENCED_PARAMETER(OutputBufferLength);
+
+    status = WdfRequestRetrieveOutputBuffer(Request, sizeof(ULONG), &outputValue, &outputBufferSize);
+    if (!NT_SUCCESS(status)) {
+        WdfRequestComplete(Request, status);
+        return;
+    }
+
+    *outputValue = OibGetConfiguredKeyboardSlotCount();
+
+    WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(ULONG));
+}
+
+VOID
+OibCtlHandleGetDriverIdentity(
+    _In_ WDFREQUEST Request,
+    _In_ size_t OutputBufferLength
+    )
+{
+    NTSTATUS status;
+    POIB_DRIVER_IDENTITY outputValue;
+    size_t outputBufferSize;
+
+    UNREFERENCED_PARAMETER(OutputBufferLength);
+
+    status = WdfRequestRetrieveOutputBuffer(Request, sizeof(OIB_DRIVER_IDENTITY), &outputValue, &outputBufferSize);
+    if (!NT_SUCCESS(status)) {
+        WdfRequestComplete(Request, status);
+        return;
+    }
+
+    outputValue->Signature = OIB_DRIVER_IDENTITY_SIGNATURE;
+    outputValue->VersionMajor = OIB_VERSION_MAJOR;
+    outputValue->VersionMinor = OIB_VERSION_MINOR;
+    outputValue->IsKeyboard = OIB_IS_KEYBOARD_BUILD;
+
+    WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(OIB_DRIVER_IDENTITY));
+}
+
+VOID
 OibCtlHandleWrite(
     _In_ WDFREQUEST Request,
     _In_ WDFDEVICE ControlDevice,
@@ -244,7 +310,8 @@ OibCtlHandleWrite(
             // as a hard requirement.
             KeRaiseIrql(DISPATCH_LEVEL, &oldIrql);
 
-            if (ctlContext->IsKeyboard) {
+#if defined(OIB_BUILD_KEYBOARD)
+            {
                 POIB_KBD_FILTER_CONTEXT kbdContext = OibGetKbdFilterContext(filterDevice);
 
                 if (kbdContext->UpperConnectData.ClassService != NULL) {
@@ -260,7 +327,9 @@ OibCtlHandleWrite(
                         );
 #pragma warning(pop)
                 }
-            } else {
+            }
+#elif defined(OIB_BUILD_MOUSE)
+            {
                 POIB_MOU_FILTER_CONTEXT mouContext = OibGetMouFilterContext(filterDevice);
 
                 if (mouContext->UpperConnectData.ClassService != NULL) {
@@ -277,6 +346,7 @@ OibCtlHandleWrite(
 #pragma warning(pop)
                 }
             }
+#endif
 
             KeLowerIrql(oldIrql);
         }
