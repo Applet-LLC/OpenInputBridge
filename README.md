@@ -122,7 +122,7 @@ git submodule update --init --recursive
 |---|---|
 | `Debug` | ドライバ・インストーラのみビルド（テスト署名、開発用）。署名・パッケージングは実行されません |
 | `Release` | ドライバ・インストーラをビルドし、両方をこのプロジェクトのEV証明書で署名して`packaging\Signed\`に集約、`dist\OpenInputBridge.zip`を作成（WHQL署名を取得する前の配布物） |
-| `ReleaseWHQL` | インストーラのみEV署名して集約し、`packaging\Signed\Drivers\`はHLK/WHQL申請から返ってきたファイルを**手動で配置したまま上書きしない**でzip作成（WHQL署名取得後の配布物） |
+| `ReleaseWHQL` | インストーラのみEV署名して集約し、`packaging\Signed\keyboard\`・`packaging\Signed\mouse\`はHLK/WHQL申請から返ってきたファイルを**手動で配置したまま上書きしない**でzip作成（WHQL署名取得後の配布物） |
 
 EWDKを使う場合はビルド環境をセットアップしたコマンドプロンプトから、そのままソリューション全体をビルドできます。
 
@@ -134,8 +134,8 @@ msbuild OpenInputBridge.sln /p:Configuration=Release /p:Platform=x64
 同じ環境変数を継いだまま `devenv OpenInputBridge.sln` でVisual Studio IDEを開いても操作できます。
 
 `ReleaseWHQL`構成を使う前に、HLK/WHQL申請から返ってきた `keyboard.inf`/`keyboard.cat`/`keyboard.sys` を
-`packaging\Signed\Drivers\keyboard\` に、`mouse.inf`/`mouse.cat`/`mouse.sys` を
-`packaging\Signed\Drivers\mouse\` に、それぞれ手動でコピーしておいてください
+`packaging\Signed\keyboard\` に、`mouse.inf`/`mouse.cat`/`mouse.sys` を
+`packaging\Signed\mouse\` に、それぞれ手動でコピーしておいてください
 （`Signed\Symbol\` はこちらの手元のビルドから毎回自動で更新されます）。
 
 署名・パッケージングの内部的な処理内容（個別のnmakeターゲット等）は `packaging/sign.mak` のコメントを

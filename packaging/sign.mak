@@ -21,7 +21,7 @@
 #   nmake -f packaging\sign.mak sign-driver (sign only: both drivers' .sys/.cat)
 #   nmake -f packaging\sign.mak stage      (stage only, no signing)
 #   nmake -f packaging\sign.mak whql       (post-WHQL: sign+stage installer .exe and refresh
-#                                            Symbol\, WITHOUT touching Signed\Drivers\)
+#                                            Symbol\, WITHOUT touching Signed\keyboard\/mouse\)
 #   nmake -f packaging\sign.mak package    (zip whatever's currently in Signed\ into dist\)
 #
 # Since docs/DECISIONS.md's 2026-07-30 entry, this ships TWO independent driver packages
@@ -39,12 +39,12 @@
 #
 #   Post-WHQL ("whql"): once these drivers have gone through HLK/WHQL, their .inf/.cat/.sys no
 #   longer come from local signing — they come back from that submission process and get
-#   dropped into Signed\Drivers\keyboard\ and Signed\Drivers\mouse\ BY HAND (this makefile never
-#   writes there in this mode). Only the installer .exe (never part of the WHQL submission)
-#   still needs local EV signing, and Signed\Symbol\ still wants our own freshly-built .pdb
-#   files (WHQL doesn't hand them back — the submitted drivers' debug symbols are exactly what
-#   we built). "whql" therefore only ever touches the installer .exe and Symbol\, and leaves
-#   Drivers\ exactly as you placed it.
+#   dropped into Signed\keyboard\ and Signed\mouse\ BY HAND (this makefile never writes there
+#   in this mode). Only the installer .exe (never part of the WHQL submission) still needs
+#   local EV signing, and Signed\Symbol\ still wants our own freshly-built .pdb files (WHQL
+#   doesn't hand them back — the submitted drivers' debug symbols are exactly what we built).
+#   "whql" therefore only ever touches the installer .exe and Symbol\, and leaves
+#   Signed\keyboard\/mouse\ exactly as you placed them.
 #
 # "package" is deliberately independent of both "all" and "whql": it only ever looks at
 # what's currently sitting in Signed\, so the same single step works regardless of which
@@ -98,11 +98,12 @@ TARGET_BIN	= ..\installer\x64\Release\OpenInputBridgeSetup.exe
 
 SIGNED_DIR	= Signed
 
-SIGNED_DRIVERS_DIR	= $(SIGNED_DIR)\Drivers
+# No intermediate "Drivers\" level: installer/install.cpp looks for
+# <exeDir>\<PackageName>\<PackageName>.inf directly (kbdaddid/mouaddid convention — see
+# common.h), not <exeDir>\Drivers\<PackageName>\...
+SIGNED_DRIVERS_DIR_KBD	= $(SIGNED_DIR)\keyboard
 
-SIGNED_DRIVERS_DIR_KBD	= $(SIGNED_DRIVERS_DIR)\keyboard
-
-SIGNED_DRIVERS_DIR_MOU	= $(SIGNED_DRIVERS_DIR)\mouse
+SIGNED_DRIVERS_DIR_MOU	= $(SIGNED_DIR)\mouse
 
 SIGNED_SYMBOLS_DIR	= $(SIGNED_DIR)\Symbol
 
@@ -167,7 +168,7 @@ stage-driver:
 		copy /y $(TARGET_INF_MOU) $(SIGNED_DRIVERS_DIR_MOU)\.
 		copy /y $(TARGET_CAT_MOU) $(SIGNED_DRIVERS_DIR_MOU)\.
 		copy /y $(TARGET_SYS_MOU) $(SIGNED_DRIVERS_DIR_MOU)\.
-		@echo [stage-driver] copied both driver packages into $(SIGNED_DRIVERS_DIR)
+		@echo [stage-driver] copied both driver packages into $(SIGNED_DIR)
 
 stage-symbol:
 		@if not exist $(SIGNED_DIR) mkdir $(SIGNED_DIR)
@@ -177,11 +178,11 @@ stage-symbol:
 		@echo [stage-symbol] copied both pdbs into $(SIGNED_SYMBOLS_DIR)
 
 # Post-WHQL pipeline — see the header comment above for why this only ever touches the
-# installer .exe and Symbol\, never Signed\Drivers\.
+# installer .exe and Symbol\, never Signed\keyboard\/mouse\.
 whql: sign-bin stage-bin stage-symbol
-		@echo [whql] installer signed + staged, Symbol\ refreshed. Signed\Drivers\ left as-is:
+		@echo [whql] installer signed + staged, Symbol\ refreshed. Signed\keyboard\/mouse\ left as-is:
 		@echo [whql] make sure the HLK/WHQL-returned .inf/.cat/.sys for both keyboard and mouse
-		@echo [whql] are already sitting in Signed\Drivers\keyboard\ and Signed\Drivers\mouse\.
+		@echo [whql] are already sitting in Signed\keyboard\ and Signed\mouse\.
 
 # Zips Signed\ as-is into dist\OpenInputBridge.zip. Uses PowerShell's Compress-Archive rather
 # than a separate zip tool dependency — available on every supported Windows version.
