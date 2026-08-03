@@ -165,6 +165,19 @@ Issue / Pull Request 歓迎です。カーネルドライバというセキュ�
 
 詳細な証跡は [`docs/CLEAN_ROOM.md`](docs/CLEAN_ROOM.md) に記録しています。
 
+## 利用に関する注意
+
+Interceptionプロトコル互換ドライバは、その性質上、インストール後は管理者権限のない一般ユーザー
+プロセスからでもシステム全体のキーボード/マウス入力を観測・注入できます（本家Interceptionと同じ、
+プロトコル互換性のための意図的な仕様）。この性質は、不正アクセス・チート行為・本人の同意のない
+監視（キーロガー的用途）など、悪用され得る形でも利用可能であることを意味します。
+
+本ソフトウェアを、第三者への不正アクセス、オンラインゲーム等におけるチート行為やアンチチート
+機構の回避、本人の同意のない監視・記録目的で使用しないでください。
+
+技術的な検知可能性・悪用リスクの詳細な調査結果、および現時点で未着手の対策案については
+[`docs/SECURITY_CONSIDERATIONS.md`](docs/SECURITY_CONSIDERATIONS.md) にまとめています。
+
 ## License
 
 自作部分は [MIT License](LICENSE) です。`third_party/interception/` 配下は oblitum/Interceptionライブラリ の LGPL に従います。
