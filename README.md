@@ -30,13 +30,13 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 | M4 | `IOCTL_WRITE`（合成入力の注入／捕捉ストロークの解放） | ✅ 実装・実機テスト済み |
 | M5 | `IOCTL_SET_PRECEDENCE`/`IOCTL_GET_PRECEDENCE`（precedenceフックチェーン） | ✅ 完了・実機テスト済み。`tests/precedence_blackbox/`の`precedence_probe`による複数プロセス同時アタッチの実機テストで、配送順序・チェーン継続・捕捉による遮断・同precedenceでのアタッチ順タイブレークすべて想定通りと確認済み。フィルタのビット照合規則自体は引き続き実物との検証待ち（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 | M6 | インストーラ（`DiInstallDriver`/`DiUninstallDriver` + UpperFilters登録） | ✅ 完了・実機テスト済み（インストール/アンインストール/再起動サイクル、サービス登録、UpperFilters順序を確認） |
-| M7 | コード署名 | 🔶 EV署名は完了・動作確認済み。HLKでSystemクラス扱い（69件のテスト対象）と判明したため、キーボード用（`oib_kbd.sys`）・マウス用（`oib_mou.sys`）の2ドライバに分割済み（[`docs/DECISIONS.md`](docs/DECISIONS.md)の2026-08-01付エントリ参照）。分割後のHLK再提出は未実施 |
+| M7 | コード署名 | ✅ EV署名・WHQL署名ともに完了。HLKでSystemクラス扱い（69件のテスト対象）と判明したため、キーボード用（`oib_kbd.sys`）・マウス用（`oib_mou.sys`）の2ドライバに分割し（[`docs/DECISIONS.md`](docs/DECISIONS.md)の2026-08-01付エントリ参照）、分割後のHLK再提出・WHQL署名取得も完了（`oib_kbd.cat`/`oib_mou.cat`ともにWindows Hardware Compatibility Publisherの署名を確認済み） |
 | M8 | 無改変のoblitum/Interceptionライブラリ・実アプリでの互換性テスト | 🚧 進行中。[`tests/upstream_lib/`](tests/upstream_lib/)に、`third_party/interception/samples/`配下の全サンプル（`identify`/`hardwareid`/`caps2esc`/`axes`/`cadstop`/`mathpointer`/`x2y`）と自作の`identify2`をビルドするプロジェクトを用意し、M0/M2/M3/M4の基本動作・実際のキーリマップ（キーボード/マウス双方）・`INTERCEPTION_FILTER_KEY_ALL`での広範なフィルタ照合・絶対座標指定と高頻度連続WRITEまで実機確認済み。特にkbdclassより下でのCtrl+Alt+Del捕捉がWindows 11でも機能することを確認（`cadstop`。Win32のフックでは原理的に不可能な動作）。無関係な複数ツール（`x2y`+`cadstop`）を同時にアタッチしても互いに干渉せず動作することも実機確認済み。AutoHotkeyのInterception fork等、本物の消費者アプリでの検証は未実施 |
 | M9 | デバイス総数上限（現行20台）の撤廃（将来対応） | 📋 未着手。20台のうちキーボード/マウスへの**配分比率**は`KeyboardSlotCount`で可変にできるようになりました（2026-08-02、[docs/DECISIONS.md](docs/DECISIONS.md)参照）が、これはM9とは別物で、合計20台という上限そのものはまだ撤廃していません。現行上限のうちキーボード10台は実機で確認済み、マウス10台は検証機材の都合で未確認（[docs/PROTOCOL.md](docs/PROTOCOL.md)参照） |
 
 詳細なタスク管理は [Issues](../../issues) / [Projects](../../projects) を参照してください。
 
-**M7（WHQL署名）について**: Microsoftはスタンドアロンのattestation signingを既に提供しておらず、WHQL署名を得るにはHLKテストの実施・提出が前提となります。本ドライバは当初キーボード/マウス両クラスに対応する単一バイナリ（`Class=System`）でしたが、HLKでのテスト対象が69件と膨大になることが判明したため、キーボード用（`oib_kbd.sys`, `Class=Keyboard`）・マウス用（`oib_mou.sys`, `Class=Mouse`）の2ドライバに分割しました。
+**M7（WHQL署名）について**: Microsoftはスタンドアロンのattestation signingを既に提供しておらず、WHQL署名を得るにはHLKテストの実施・提出が前提となります。本ドライバは当初キーボード/マウス両クラスに対応する単一バイナリ（`Class=System`）でしたが、HLKでのテスト対象が69件と膨大になることが判明したため、キーボード用（`oib_kbd.sys`, `Class=Keyboard`）・マウス用（`oib_mou.sys`, `Class=Mouse`）の2ドライバに分割しました。分割後の両ドライバについてHLK再提出・WHQL署名取得が完了しています。
 
 ## アーキテクチャ概要
 
