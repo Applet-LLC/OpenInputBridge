@@ -45,10 +45,15 @@
 #   longer come from local signing — they come back from that submission process and get
 #   dropped into Signed\oib_kbd\ and Signed\oib_mou\ BY HAND (this makefile never writes there
 #   in this mode). Only the installer .exe (never part of the WHQL submission) still needs
-#   local EV signing, and Signed\Symbol\ still wants our own freshly-built .pdb files (WHQL
-#   doesn't hand them back — the submitted drivers' debug symbols are exactly what we built).
-#   "whql" therefore only ever touches the installer .exe and Symbol\, and leaves
-#   Signed\oib_kbd\/oib_mou\ exactly as you placed them.
+#   local EV signing. WHQL doesn't hand symbols back, so Signed\Symbol\ still needs our own
+#   .pdb — but "our own" must mean the exact build that was actually submitted, not whatever
+#   happens to be sitting in the local Release output right now: if the driver gets rebuilt
+#   (even a no-op rebuild) between submission and running this target, a .pdb pulled fresh from
+#   the build tree would silently no longer match the signed .sys HLK returned. To avoid that,
+#   drop the submission-time .pdb into Signed\oib_kbd\/oib_mou\ BY HAND alongside the returned
+#   .inf/.cat/.sys (see TARGET_PDB_KBD/MOU below) — it's used in preference to the local build
+#   output when present. "whql" therefore only ever touches the installer .exe and Symbol\, and
+#   leaves Signed\oib_kbd\/oib_mou\ exactly as you placed them.
 #
 # "package" is deliberately independent of both "all" and "whql": it only ever looks at
 # what's currently sitting in Signed\, so the same single step works regardless of which
@@ -88,7 +93,14 @@ TARGET_INF_KBD	= $(DRIVER_PACKAGE_DIR_KBD)\oib_kbd.inf
 
 TARGET_CAT_KBD	= $(DRIVER_PACKAGE_DIR_KBD)\oib_kbd.cat
 
+# Prefers a hand-placed, submission-matching .pdb (Signed\oib_kbd\oib_kbd.pdb, dropped in next
+# to the WHQL-returned .inf/.cat/.sys) over the local Release build output, since the latter can
+# silently drift out of sync with what was actually submitted (see header comment above).
+!IF EXIST(Signed\oib_kbd\oib_kbd.pdb)
+TARGET_PDB_KBD	= Signed\oib_kbd\oib_kbd.pdb
+!ELSE
 TARGET_PDB_KBD	= ..\driver\keyboard\x64\Release\oib_kbd.pdb
+!ENDIF
 
 TARGET_SYS_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\oib_mou.sys
 
@@ -96,7 +108,11 @@ TARGET_INF_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\oib_mou.inf
 
 TARGET_CAT_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\oib_mou.cat
 
+!IF EXIST(Signed\oib_mou\oib_mou.pdb)
+TARGET_PDB_MOU	= Signed\oib_mou\oib_mou.pdb
+!ELSE
 TARGET_PDB_MOU	= ..\driver\mouse\x64\Release\oib_mou.pdb
+!ENDIF
 
 TARGET_BIN	= ..\installer\x64\Release\OpenInputBridgeSetup.exe
 
