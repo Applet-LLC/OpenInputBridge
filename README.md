@@ -66,6 +66,16 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 ソリューションの`Packaging`プロジェクトをbuildして作られたzip（`OpenInputBridge.zip`）を展開すると、`oib_kbd\`・`oib_mou\`（それぞれ`.inf`/`.cat`/`.sys`）と
 `OpenInputBridgeSetup.exe` が含まれています。
 
+**事前準備(テスト署名/EV署名の場合)**: ドライバの署名がテスト署名、または（WHQL取得前の）EV署名の場合は、
+インストール前に管理者権限のコマンドプロンプトで以下を実行し、再起動しておいてください。
+
+```bat
+bcdedit /set TESTSIGNING ON
+```
+
+なお、セキュアブートやBitLockerを利用されている場合には、それぞれの解除も必要となります。
+WHQL署名済みドライバではこの手順は不要です。
+
 1. `OpenInputBridgeSetup.exe` を実行します（管理者権限が必要なマニフェストが付与されているため、
    実行すると自動的にUACの昇格プロンプトが表示されます）。引数なしでキーボード用・マウス用の
    両方がインストールされます（`keyboard`/`mouse`を引数に指定すると片方だけも可能）。
@@ -120,15 +130,17 @@ git submodule update --init --recursive
 
 | ソリューション構成 | 内容 |
 |---|---|
-| `Debug` | ドライバ・インストーラのみビルド（テスト署名、開発用）。署名・パッケージングは実行されません |
+| `Debug` | ドライバ・インストーラのみビルド（テスト署名、開発用）。署名・パッケージングは実行されません。**自分でビルドして試す場合はこちら**（前掲の表の「セルフビルド版バイナリ」に対応） |
 | `Release` | ドライバ・インストーラをビルドし、両方をこのプロジェクトのEV証明書で署名して`packaging\Signed\`に集約、`dist\OpenInputBridge.zip`を作成（WHQL署名を取得する前の配布物） |
 | `ReleaseWHQL` | インストーラのみEV署名して集約し、`packaging\Signed\oib_kbd\`・`packaging\Signed\oib_mou\`はHLK/WHQL申請から返ってきたファイルを**手動で配置したまま上書きしない**でzip作成（WHQL署名取得後の配布物） |
 
-EWDKを使う場合はビルド環境をセットアップしたコマンドプロンプトから、そのままソリューション全体をビルドできます。
+`Release`/`ReleaseWHQL`はこのプロジェクト（Applet LLC）名義のEV証明書を前提としており、リポジトリ所有者以外の環境では意図した形で完走しません。証明書が無い環境で`Release`/`ReleaseWHQL`を使うと、`packaging\sign.mak`の署名コマンドは失敗しますが、失敗を無視する作りになっているため**ビルド自体は正常終了し、未署名（テスト署名ですらない）のバイナリがそのまま`dist\OpenInputBridge.zip`に入ってしまいます**。この状態のバイナリはテスト署名を有効にしたWindowsでもロードできません。EV証明書を持たない場合は、必ず`Debug`構成を使ってください。
+
+EWDKを使う場合はビルド環境をセットアップしたコマンドプロンプトから、そのままソリューション全体をビルドできます。自分でビルドして試す場合（EV証明書なし）は`Debug`構成を指定してください。
 
 ```bat
 K:\BuildEnv\SetupBuildEnv.cmd amd64
-msbuild OpenInputBridge.sln /p:Configuration=Release /p:Platform=x64
+msbuild OpenInputBridge.sln /p:Configuration=Debug /p:Platform=x64
 ```
 
 同じ環境変数を継いだまま `devenv OpenInputBridge.sln` でVisual Studio IDEを開いても操作できます。
