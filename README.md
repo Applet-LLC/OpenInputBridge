@@ -63,7 +63,7 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ## インストール
 
-配布されたzip（`OpenInputBridge.zip`）を展開すると、`oib_kbd\`・`oib_mou\`（それぞれ`.inf`/`.cat`/`.sys`）と
+ソリューションの`Packaging`プロジェクトをbuildして作られたzip（`OpenInputBridge.zip`）を展開すると、`oib_kbd\`・`oib_mou\`（それぞれ`.inf`/`.cat`/`.sys`）と
 `OpenInputBridgeSetup.exe` が含まれています。
 
 1. `OpenInputBridgeSetup.exe` を実行します（管理者権限が必要なマニフェストが付与されているため、
