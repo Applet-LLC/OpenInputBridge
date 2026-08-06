@@ -43,8 +43,10 @@ Windows SDK単体では解決できないため。ビルドされる `intercepti
 出力先は `interception.dll` と同じ `tests\upstream_lib\x64\Release\`（`Debug`なら`x64\Debug\`）で、
 `identify.exe`はそのフォルダにある`interception.dll`をそのまま読み込む。
 
-事前に、対象マシンにOpenInputBridgeドライバがインストール・再起動済みであること（`sc.exe query
-OpenInputBridge`でSTATE:RUNNINGを確認）。管理者権限は不要（コントロールデバイスのSDDLは
+事前に、対象マシンにOpenInputBridgeドライバがインストール・再起動済みであること（管理者権限の
+コマンドプロンプトから`sc.exe query OpenInputBridgeKeyboard` / `sc.exe query
+OpenInputBridgeMouse`を実行し、STATEがRUNNINGであることを確認。`sc.exe`の実行自体に管理者権限が
+必要）。一方、`identify.exe`の実行自体には管理者権限は不要（コントロールデバイスのSDDLは
 Everyoneに読み書きを許可している。`driver/common/driver.c`の`OibControlDeviceSddl`参照）。
 
 ```bat

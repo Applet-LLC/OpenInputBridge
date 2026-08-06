@@ -81,8 +81,12 @@ WHQL署名済みドライバではこの手順は不要です。
    両方がインストールされます（`keyboard`/`mouse`を引数に指定すると片方だけも可能）。
 2. 完了後、**再起動してください。** `UpperFilters`（デバイスクラスへのフィルタ登録）はOS起動時の
    デバイススタック構築時にのみ反映されるため、再起動なしでは有効になりません。
-3. `sc query OpenInputBridgeKeyboard` / `sc query OpenInputBridgeMouse` で、それぞれ
-   `SERVICE_KERNEL_DRIVER` / `SERVICE_SYSTEM_START` として登録されていることを確認できます。
+3. 管理者権限のコマンドプロンプトから`sc query OpenInputBridgeKeyboard` / `sc query
+   OpenInputBridgeMouse`を実行し、それぞれTYPEが`KERNEL_DRIVER`、STATEが`RUNNING`である
+   ことを確認できます（`sc`コマンド自体の実行に管理者権限が必要です）。なお`sc config
+   ... start=`は次回起動時の開始種別を変えるだけで現在の動作中の状態には影響せず、
+   `sc stop`もこれらのサービスに対しては無効（エラー1052）です。動作中のドライバの状態を
+   `sc`から直接変更することはできません。
 
 アンインストールは `OpenInputBridgeSetup.exe /uninstall` を管理者権限で実行し、同様に再起動してください
 （こちらも引数なしで両方、`keyboard`/`mouse`指定で片方だけアンインストールできます）。
