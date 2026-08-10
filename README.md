@@ -78,7 +78,7 @@ WHQL署名済みドライバではこの手順は不要です。
 
 1. `setup.bat` を実行します（.batファイル自体にはマニフェストが無くUACが自動表示されないため、
    実行すると自ら管理者権限へ昇格し直します）。キーボード用・マウス用の両方をインストールした上で、
-   [監査ログ・通知機能](#監査ログ・通知機能オプション)を既定で有効化します（`OpenInputBridgeSetup.exe`・
+   [監査ログ・通知機能](#監査ログ・通知機能)を既定で有効化します（`OpenInputBridgeSetup.exe`・
    `--enable-audit-log`・`--enable-toast`を順に実行するだけの単純なラッパーです）。これらの機能が
    不要な場合は、インストール後に`OpenInputBridgeSetup.exe --disable-audit-log`・
    `--disable-toast`で無効化できます。片方のドライバだけをインストールしたい、`--slots=N`で
@@ -116,7 +116,7 @@ keyboard --slots=15`とすると、キーボード15個・マウス5個の配分
 `OpenInputBridgeSetup.exe` は静的にCRTをリンクしているため、別途Visual C++
 再頒布可能パッケージをインストールする必要はありません。
 
-## 監査ログ・通知機能（オプション）
+## 監査ログ・通知機能
 
 `OpenInputBridgeSetup.exe`には、Interceptionプロトコル互換のコントロールデバイス
 （`\\.\interceptionNN`）を開いたプロセスをWindows標準のセキュリティイベントログに記録する
