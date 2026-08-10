@@ -80,6 +80,7 @@
 #
 # Distribution layout (matches what installer/install.cpp's InfPath lookup expects —
 # <exeDir>\<PackageName>\<PackageName>.inf per driver):
+#   setup.bat
 #   OpenInputBridgeSetup.exe
 #   OibToastHelper.exe
 #   OibToastHelper.ico
@@ -142,6 +143,10 @@ TARGET_TOAST_ICON	= ..\installer\toast-helper\OibToastHelper.ico
 TARGET_README	= ..\README.md
 
 TARGET_LICENSE	= ..\LICENSE
+
+# One-click install (drivers + --enable-audit-log + --enable-toast) — see setup.bat's own
+# header comment. Not a build output — copied straight from source, same as the toast icon.
+TARGET_SETUP_BAT	= setup.bat
 
 SIGNED_DIR	= Signed
 
@@ -216,7 +221,8 @@ stage-bin:
 		copy /y $(TARGET_TOAST_ICON) $(SIGNED_DIR)\.
 		copy /y $(TARGET_README) $(SIGNED_DIR)\.
 		copy /y $(TARGET_LICENSE) $(SIGNED_DIR)\.
-		@echo [stage-bin] copied installer, toast helper, its icon, README, and LICENSE into $(SIGNED_DIR)
+		copy /y $(TARGET_SETUP_BAT) $(SIGNED_DIR)\.
+		@echo [stage-bin] copied installer, toast helper, its icon, README, LICENSE, and setup.bat into $(SIGNED_DIR)
 
 stage-driver:
 		@if not exist $(SIGNED_DIR) mkdir $(SIGNED_DIR)

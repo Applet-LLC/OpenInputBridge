@@ -64,7 +64,7 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 ## インストール
 
 ソリューションの`Packaging`プロジェクトをbuildして作られたzip（`OpenInputBridge.zip`）を展開すると、`oib_kbd\`・`oib_mou\`（それぞれ`.inf`/`.cat`/`.sys`）と
-`OpenInputBridgeSetup.exe` が含まれています。
+`OpenInputBridgeSetup.exe`・`setup.bat` が含まれています。
 
 **事前準備(テスト署名/EV署名の場合)**: ドライバの署名がテスト署名、または（WHQL取得前の）EV署名の場合は、
 インストール前に管理者権限のコマンドプロンプトで以下を実行し、再起動しておいてください。
@@ -76,9 +76,14 @@ bcdedit /set TESTSIGNING ON
 なお、セキュアブートやBitLockerを利用されている場合には、それぞれの解除も必要となります。
 WHQL署名済みドライバではこの手順は不要です。
 
-1. `OpenInputBridgeSetup.exe` を実行します（管理者権限が必要なマニフェストが付与されているため、
-   実行すると自動的にUACの昇格プロンプトが表示されます）。引数なしでキーボード用・マウス用の
-   両方がインストールされます（`keyboard`/`mouse`を引数に指定すると片方だけも可能）。
+1. `setup.bat` を実行します（.batファイル自体にはマニフェストが無くUACが自動表示されないため、
+   実行すると自ら管理者権限へ昇格し直します）。キーボード用・マウス用の両方をインストールした上で、
+   [監査ログ・通知機能](#監査ログ・通知機能オプション)を既定で有効化します（`OpenInputBridgeSetup.exe`・
+   `--enable-audit-log`・`--enable-toast`を順に実行するだけの単純なラッパーです）。これらの機能が
+   不要な場合は、インストール後に`OpenInputBridgeSetup.exe --disable-audit-log`・
+   `--disable-toast`で無効化できます。片方のドライバだけをインストールしたい、`--slots=N`で
+   キーボード/マウスの配分を変えたい、といった場合は`setup.bat`を使わず後述のように
+   `OpenInputBridgeSetup.exe`を直接、必要な引数を付けて実行してください。
 2. 完了後、**再起動してください。** `UpperFilters`（デバイスクラスへのフィルタ登録）はOS起動時の
    デバイススタック構築時にのみ反映されるため、再起動なしでは有効になりません。
 3. 管理者権限のコマンドプロンプトから`sc query OpenInputBridgeKeyboard` / `sc query
@@ -88,8 +93,14 @@ WHQL署名済みドライバではこの手順は不要です。
    `sc stop`もこれらのサービスに対しては無効（エラー1052）です。動作中のドライバの状態を
    `sc`から直接変更することはできません。
 
+`OpenInputBridgeSetup.exe`を直接実行する場合も、管理者権限が必要なマニフェストが付与されているため、
+実行すると自動的にUACの昇格プロンプトが表示されます。引数なしでキーボード用・マウス用の両方が
+インストールされます（`keyboard`/`mouse`を引数に指定すると片方だけも可能）。
+
 アンインストールは `OpenInputBridgeSetup.exe /uninstall` を管理者権限で実行し、同様に再起動してください
-（こちらも引数なしで両方、`keyboard`/`mouse`指定で片方だけアンインストールできます）。
+（こちらも引数なしで両方、`keyboard`/`mouse`指定で片方だけアンインストールできます）。監査ログ・
+トースト通知機能を有効化していた場合は、先に`--disable-audit-log`・`--disable-toast`も実行しておくと、
+タスクスケジューラーのタスクなどが残りません。
 
 **キーボード/マウスの配分を変える場合**: 既定では`\\.\interception00`〜`19`の20個を
 キーボード10個・マウス10個に均等配分しますが、`--slots=N`（`keyboard`/`mouse`指定と併用、
@@ -110,7 +121,8 @@ keyboard --slots=15`とすると、キーボード15個・マウス5個の配分
 `OpenInputBridgeSetup.exe`には、Interceptionプロトコル互換のコントロールデバイス
 （`\\.\interceptionNN`）を開いたプロセスをWindows標準のセキュリティイベントログに記録する
 監査ログ機能と、その発生をトースト通知でリアルタイムに知らせる通知機能を用意しています
-（いずれもデバイスドライバ自体は改変せず、OS標準機能のみで実装しています）。設計判断の詳細は
+（いずれもデバイスドライバ自体は改変せず、OS標準機能のみで実装しています）。`setup.bat`経由で
+インストールした場合は既定で両方とも有効になります。設計判断の詳細は
 [`docs/DECISIONS.md`](docs/DECISIONS.md)、既知の限界・検討した代替案は
 [`docs/SECURITY_CONSIDERATIONS.md`](docs/SECURITY_CONSIDERATIONS.md)を参照してください。
 
@@ -119,13 +131,16 @@ keyboard --slots=15`とすると、キーボード15個・マウス5個の配分
 インストール後も削除・移動しないでください**。展開した場所がそのまま実質的なインストール先に
 なります。
 
-```bat
-:: 以下は管理者権限のコマンドプロンプトから実行してください
-OpenInputBridgeSetup.exe --enable-audit-log    & rem 監査ログを有効化
-OpenInputBridgeSetup.exe --disable-audit-log   & rem 無効化
+以下は管理者権限のコマンドプロンプトから実行してください。
 
-OpenInputBridgeSetup.exe --enable-toast        & rem トースト通知を有効化（監査ログの有効化が前提）
-OpenInputBridgeSetup.exe --disable-toast       & rem 無効化
+```bat
+:: 監査ログの有効化・無効化
+OpenInputBridgeSetup.exe --enable-audit-log
+OpenInputBridgeSetup.exe --disable-audit-log
+
+:: トースト通知の有効化・無効化（有効化には監査ログの有効化が前提）
+OpenInputBridgeSetup.exe --enable-toast
+OpenInputBridgeSetup.exe --disable-toast
 
 :: 信頼しているプロセスについては通知だけを抑制できます（監査ログ自体は引き続き全件記録されます）
 OpenInputBridgeSetup.exe --allow-process "C:\full\path\to\app.exe"
