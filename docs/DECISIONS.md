@@ -257,3 +257,563 @@ OpenInputBridge自身のもの、もう一つは**Windowsに標準搭載され�
 Interception互換性は`\\.\interceptionNN`というデバイス名とワイヤプロトコル（IOCTL）の
 みで決まり、ドライバファイル名・サービス名・INFファイル名とは完全に無関係なため、
 この改名によって互換性への影響は一切ない。
+
+---
+
+## 2026-08-08: 監査ログ（SACL）・トースト通知機能の設計
+
+### 背景
+
+`docs/SECURITY_CONSIDERATIONS.md`第5節の未着手事項「監査ログ・使用状況の可視化」について、
+デバイスドライバ本体（`driver/`）を一切改変せずに実現する方式を検討した。あわせて、将来の
+拡張候補として利用者への通知（トースト）機能もオプションとして設計に含めた。
+
+### 採用した設計
+
+- **SACL方式**: `\\.\interceptionNN`の各コントロールデバイスに`SetNamedSecurityInfoW`で
+  SACL（監査ACE）を付与し、`auditpol /set /subcategory:"Kernel Object"`と組み合わせて
+  Windows標準のオブジェクトアクセス監査（セキュリティイベントログ4656/4663）で記録する。
+  ドライバの署名・カタログ・WHQL認定には一切触れない、完全にドライバ外側の変更で完結する。
+- **SACLの再適用はタスクスケジューラで行う（常駐サービス化しない）**: SACLはコントロール
+  デバイスオブジェクトが再作成されるたび（＝ドライバサービス起動のたび）に消えるため、
+  SCM（サービス制御マネージャ）のサービス開始イベント（Event ID 7036、対象サービス名で
+  フィルタ）をトリガーとするタスクスケジューラのタスクで再適用する。イベントドリブンな
+  ワンショット実行で足りるため、常駐ポーリングサービスは不要と判断した。
+- **トースト通知はユーザーセッション内で動くタスクとして実装する**: LocalSystemサービスは
+  Session 0分離のため、ログオン中ユーザーの対話セッションに直接UIを出せない
+  （`WTSQueryUserToken`+`CreateProcessAsUser`によるセッション越境が必要になり複雑化する）。
+  代わりに、該当セキュリティイベント（4656/4663、対象デバイス名でフィルタ）をトリガーとし、
+  「ユーザーがログオンしている場合のみ実行」に設定したタスクスケジューラのタスクとして実装する。
+  これは自動的にログオン中ユーザーのセッション内で実行されるため、追加のセッション越境処理が
+  不要になる。
+- **トーストは専用AUMID（`OpenInputBridge.AuditNotifier`）+スタートメニューショートカットで
+  「OpenInputBridge」名義表示する**: PowerShellの既存AUMIDを間借りする案（実装コストは最小）
+  も検討したが、「Windows PowerShell」名義で表示されてしまい商用版（Pro/Subscription）の
+  ブランディング上望ましくないため不採用。小さなネイティブヘルパー
+  （`installer/toast-helper/OibToastHelper.exe`、C++/WinRT）を新設し、`HKCU\Software\Classes\
+  AppUserModelId\...`へのAUMID登録とスタートメニューショートカットの両方を用意する方式を採用した。
+- **実装箇所の一元化**: 3リポジトリ（OSS版/Pro/Subscription）とも、実際のドライバインストール
+  処理は既にOSS版`installer/`の`OpenInputBridgeSetup.exe`に一本化されており、Pro/Subscriptionは
+  ビルド成果物をそのまま同梱・CustomActionから呼び出すだけの構成になっている。今回の監査ログ・
+  トースト機能もこの慣習に倣い、実体はOSS版`installer/`に一度だけ実装し、Pro/Subscriptionの
+  WiXインストーラーはビルド成果物をコピーしてオプション機能（Feature）として公開するのみとする。
+
+### 検討したが不採用にした案
+
+1. **DACLの絞り込み（`Everyone`権限の制限）**: 本家Interceptionプロトコル互換性（無昇格
+   プロセスからの利用）と両立しないため不採用。インストール後に管理者権限の外部プロセスが
+   `SetNamedSecurityInfoW`で動的にDACLを絞り込む案も検討したが、絞り込みが適用されるまでの
+   隙（TOCTOU）が原理上残ることと、外付けの保護ゆえに迂回・無効化されやすいことから見送った。
+2. **消費側プロセスの許可リスト/署名検証（ユーザーモードでの事前ブロック）**: ハンドル
+   オープン自体を防ぐ真の予防的アクセス制御は本来カーネル側（`IRP_MJ_CREATE`）でしか実現
+   できない。ユーザーモードでのハンドル列挙ポーリングによる事後検知（開かれたことを検知して
+   プロセスを強制終了する等）も検討したが、開いてから気づくまでのタイムラグがあり防御力が
+   弱く、かつ常駐ポーリングプロセスが必要になるため、今回は見送った。
+3. **SACL再適用を常駐Windowsサービス化する案**（Subscription版の`OpenInputBridgeLicenseSvc`
+   に倣う案）: `OpenInputBridgeLicenseSvc`は24時間ごとのサブスクリプション再検証という
+   無関係な責務のポーリングサービスであり、流用すると責務が混在する。SACL再適用はサービス
+   起動時の1回で完結するイベントドリブンな処理のため、軽量なタスクスケジューラのイベント
+   トリガー方式を採用し、常駐サービス化は不採用とした。
+4. **トースト表示をLocalSystemサービスから直接行う案**: 上記「採用した設計」に記載の通り、
+   Session 0分離により技術的に大幅な複雑化を伴うため不採用。
+5. **トーストのAUMIDをPowerShellの既存AUMIDに間借りする案**: 実装コストは最小だが、通知の
+   発行元表示が「Windows PowerShell」になってしまい、商用版のブランディング上望ましくないため
+   不採用（詳細は上記「採用した設計」参照）。
+6. **デバイスドライバ（カーネル側）に機能を追加する案**: 将来の選択肢として記録するに留め、
+   現時点では不採用とした。
+   - `EvtIoDeviceControl`やファイル作成コールバックで呼び出し元プロセスを検査し、許可リスト
+     外を`STATUS_ACCESS_DENIED`で拒否する、真の予防的アクセス制御が可能になる
+   - ETW（`EventWrite`）で汎用のWindowsセキュリティ監査より高速・高粒度なログを直接出せる
+   - 一方で、ドライバの変更はWHQL再申請・再署名（`docs/DECISIONS.md`の各種WHQL関連の教訓が
+     示す通り相応の手間とリードタイムを要する）を必要とし、`docs/CLEAN_ROOM.md`が定める
+     「プロトコル忠実・最小限」というドライバの設計方針からも逸脱する。ユーザーモード側の
+     変更だけで目的（利用状況の可視化・利用者への通知）を達成できる以上、現時点でドライバに
+     手を入れる理由はないと判断した。将来、真の予防的アクセス制御が必要になった場合の選択肢
+     として記録する。
+
+**2026-08-09追記**: `--enable-audit-log`をインストーラーのMSIから呼ぶ場合の不具合を発見・修正した。
+`install.cpp`の`SetupInstallServicesFromInfSectionW`呼び出しは`SPSVCINST_STARTSERVICE`フラグを
+渡していないためドライバサービスを即座には起動せず、`SERVICE_SYSTEM_START`型のサービスは
+次回起動まで実行される保証がない。そのため、ドライバインストールと同一のMSIトランザクション内で
+監査ログ機能を有効化しようとすると、この時点では`\\.\interceptionNN`が1つも存在せず、
+`RunEnableAuditLog`(`installer/auditlog.cpp`)が「対象デバイス0件」を即座にエラー扱いにして
+`1`を返し、`CA_EnableAuditLog`が`Return="check"`のため**MSIインストール全体が失敗する**という
+不具合があった。デバイス0件は再起動前のインストール直後には正常に起こり得る状態であり、
+再適用タスク(SCM Event 7036トリガー)がドライバの初回起動時に自動的に拾ってくれるため、
+このケースをエラーではなく情報メッセージに変更した(auditpolの有効化・タスク登録自体は
+デバイスの有無と無関係に成功するため、そちらは変更していない)。`RunApplyAuditSacl`
+(再適用タスク自身が呼ぶ内部コマンド)側は、7036イベント発火時=ドライバが起動しているはずの
+タイミングで動くため、デバイス0件を引き続きエラーとして扱う。
+
+**2026-08-09追記(2)**: `--enable-audit-log`実行時に`auditpol.exe exited with code 87`
+(`ERROR_INVALID_PARAMETER`)で失敗する不具合を、日本語版Windows実機での検証により発見・修正した。
+`auditpol.exe`の`/subcategory`パラメータは、サブカテゴリの**ローカライズされた表示名**と照合される
+仕様であり、`"Kernel Object"`という英語名は英語版Windowsでしか通らない。日本語版では
+`auditpol /get /subcategory:"Kernel Object"`のように英語名を渡すと、パラメータ自体を認識できずに
+使い方(Usage)メッセージとともにエラー87を返すことを実機で確認した(`auditpol /get
+/subcategory:{0CCE921F-69AE-11D9-BED3-505054503030}`のようにGUID形式で渡すと正しく解釈され、
+未昇格プロセスからの実行時は代わりに`ERROR_PRIVILEGE_NOT_HELD`(1314)になることも確認済み ——
+GUID形式ならパースは通り、あとは権限の問題だけになるということ)。`auditpol`はWindows Vista以降
+`/subcategory:{GUID}`形式をサポートしているため、`installer/auditlog.cpp`の
+`SetKernelObjectAuditSubcategory`を、英語名の直書きからロケール非依存の固定GUID
+(`{0CCE921F-69AE-11D9-BED3-505054503030}`、"Kernel Object"サブカテゴリの既知の固定GUID)を
+使う形に変更した。Subscription版の同ファイルにも同じ修正を反映済み。
+
+**2026-08-09追記(3)**: 上記2件の修正後、実機(再起動込み)で監査ログ機能一式が有効化される
+ところまでは確認できたが、再起動後に`identify2.exe`(`tests/upstream_lib/`のサンプル)で
+`\\.\interceptionNN`を開いてもセキュリティイベントログに記録が追加されず、トーストも
+表示されないという報告があった。調査したところ、**再適用タスクが一度も発火していない**
+ことが`schtasks /query /tn OpenInputBridgeAuditLogReapply /v /fo list`の「前回の実行時刻:
+1999/11/30 0:00:00」「前回の結果: 267011」(`SCHED_S_TASK_HAS_NOT_RUN`、Task Scheduler自身が
+使う「このタスクは一度も実行されていない」という定数)から判明した。
+
+さらに実機の`Get-WinEvent`でSystemログを直接確認したところ、根本原因が判明した:
+**`OpenInputBridgeKeyboard`/`OpenInputBridgeMouse`は`SERVICE_SYSTEM_START`型のカーネル
+ドライバであり、通常のWin32サービスのようにSCMの`StartService`経由で起動するのではなく、
+カーネル初期化のごく早い段階でI/Oマネージャーが直接ロードする**。そのためSCMが「自分が
+起動させた」という状態遷移を認識せず、Event 7036(サービスが実行状態になった)自体が
+このタイプのドライバに対しては一度も記録されないことを確認した(実機のSystemログには
+同じService Control Managerプロバイダーの7023・7026(異常系イベント)は記録されているのに
+7036だけが一切無かった)。前提としていた「サービス起動のたびに7036が発火し、それを
+再適用タスクが拾う」という設計自体が、このドライバの起動方式には当てはまらなかった。
+
+**対応**: 再適用タスクのトリガーを、Event 7036ベースの`EventTrigger`から、Windows起動のたびに
+実行される`BootTrigger`に変更した。`SERVICE_SYSTEM_START`型ドライバはカーネル初期化のごく
+早い段階でロードされるため、タスクスケジューラー自身のサービスが起動してブートトリガーを
+評価する頃には、ドライバは確実に起動済みになっている。`installer/auditlog.cpp`の
+`BuildReapplyTaskXml`を書き換え、もはや使われなくなったサービス表示名の定数
+(`KeyboardServiceDisplayName`/`MouseServiceDisplayName`)も削除した。Subscription版の
+同ファイルにも同じ修正を反映済み。既存のタスクは古い(発火しない)定義のまま残ってしまうため、
+この修正を反映したビルドで`--disable-audit-log`→`--enable-audit-log`と再実行し、タスクを
+新しい定義で登録し直す必要がある。
+
+---
+
+## 2026-08-09: OSS版のGUIインストーラーを廃止しCLIに一本化
+
+### 背景
+
+2026-08-08エントリの実装として、OSS版にも(Pro/Subscription版に倣い)`setup/`配下にWiX v3 MSIの
+GUIインストーラーを新設していた。しかしOSS版では以下の理由でCLIインストーラー
+(`OpenInputBridgeSetup.exe`)単体で十分と判断し、GUIインストーラーを削除した。
+
+- 監査ログ・トースト通知の有効化を含め、GUIができることはCLIの引数(`--enable-audit-log`
+  `--enable-toast`等)で全て実行可能であり、機能的な差はない
+- OSS版は`ja-JP`/`en-US`の2つの独立したMSIを別々にビルドする構成だったため、利用者が自分の
+  使用言語に応じてどちらを実行するか手動で選ぶ必要があり、UXとして煩雑だった(単一のMSIで
+  OS言語に応じて自動選択する構成にする手もあったが、そこまでの作業コストに見合う効果が
+  OSS版には無いと判断)
+- Pro/Subscription版はライセンスキー入力ダイアログ等、GUIでなければ成立しないUIを持つため
+  MSIを維持する必要があるが、OSS版にはその種の要件が無い
+- 技術者向けのドライバツールという性格上、「Programs and Features」への登録や標準的な
+  アンインストールUIが無いことは許容範囲と判断した
+
+### 削除したもの
+
+- `setup/`ディレクトリ一式(`Product.wxs`・`OpenInputBridgeInstaller.wixproj`・`Lang/`・
+  `License.*.rtf`・`Prepare-Staging.ps1`)
+- `OpenInputBridge.sln`からの`OpenInputBridgeInstaller`プロジェクトエントリ
+- `packaging/sign.mak`の`msi`/`msi-build`/`sign-msi`/`stage-msi`ターゲット(`all`/`whql`からの
+  依存も含め、2026-08-08時点で追加していたもの一式)
+
+### スタートメニューショートカットの移設
+
+トースト通知のAUMID(`OpenInputBridge.AuditNotifier`)には、非パッケージ型デスクトップアプリの
+場合スタートメニューショートカットの存在が期待される(2026-08-08エントリ参照)。従来はこの
+ショートカット作成をWiXの`<Shortcut>`要素に任せていたが、GUIインストーラーを廃止すると
+作成主体が無くなる。そこで`installer/toastsetup.cpp`の`RunEnableToast`自体が`IShellLink`/
+`IPersistFile`(COM)を使って直接`.lnk`を作成するように変更した
+(`CreateStartMenuShortcut`/`RemoveStartMenuShortcut`)。作成先は全ユーザー共通の
+`FOLDERID_CommonPrograms`配下の`OpenInputBridge`フォルダで、対象(`OibToastHelper.exe`)に
+埋め込み済みのアイコンがそのまま使われる。
+
+この変更は`installer/toastsetup.cpp`という共有ソースに対するものなので、Pro/Subscription版にも
+自動的に波及する。Pro/Subscription版のWiXインストーラー側で従来作っていた同等のショートカット
+(`CMP_ToastHelperShortcut`)は、CLI側が作るようになったショートカットと重複するため、
+Pro/Subscription両方の`Product.wxs`からも削除した(Pro版は他に用途の無かった
+`ProgramMenuFolder`ディレクトリごと削除。Subscription版はライセンスGUIのショートカットが
+同じ`PROGRAMMENUFOLDER`を使い続けるためディレクトリ自体は残した)。
+
+### README・LICENSEの同梱
+
+OSS版の配布zip(`packaging/dist/OpenInputBridge.zip`)に`README.md`・`LICENSE`を同梱するように
+`packaging/sign.mak`の`stage-bin`を拡張した。GUIインストーラーが無くなり、EULA表示等の
+「利用前に必ず目を通させる」UIも無くなったため、zipを展開しただけで最低限の情報
+(ライセンス・使い方)にアクセスできるようにする狙い。
+
+---
+
+## 2026-08-10: 監査ログが有効化後も記録されない問題(レガシー監査ポリシーとの競合)
+
+### 症状
+
+2026-08-09の2件の修正(auditpolのGUID化、再適用タスクのBootTrigger化)適用後、実機で
+`--enable-audit-log`が全ステップ成功し、再起動後に再適用タスクも実際に発火(前回の結果: `0`)
+することを確認できた。しかしそれでもなお、`identify2.exe`(`tests/upstream_lib/`)で
+`\\.\interceptionNN`を開いてもセキュリティイベントログにイベントID 4656/4663が記録されず、
+トーストも表示されなかった。
+
+一方で、以前は無かったはずの「資格情報マネージャーの資格情報が読み取られました」
+(イベントID 5379、読み取り操作: 資格情報の列挙)というイベントが大量に記録されるように
+なっていることが分かった。5379は「Kernel Object」ではなく「その他のオブジェクトアクセス
+イベント」サブカテゴリに属するイベントである。
+
+### 原因調査
+
+まず`auditpol /list /subcategory:* /r`(CSV形式)の出力を実機で確認し、GUID
+`{0CCE921F-69AE-11D9-BED3-505054503030}`が実際に「Kernel Object」を指していること自体は
+確認できた(前後のGUID`{0CCE921D}`=File System、`{0CCE921E}`=Registry、直後の
+`{0CCE9220}`=SAM(この名前だけは非日本語文字列のため直接読めた)という並び順から、
+GUIDの取り違えではないと判断できる)。
+
+次に`HKLM\SYSTEM\CurrentControlSet\Control\Lsa\SCENoApplyLegacyAuditPolicy`を確認したところ、
+値が存在しなかった(未設定)。Windowsには「詳細な監査ポリシー」(`auditpol`が操作する、
+サブカテゴリ単位の設定)と「レガシーな基本監査ポリシー」(ローカル/グループポリシーの
+9個の大分類、例: 単純な「オブジェクトアクセスの監査」のオン/オフ)という2系統の監査ポリシーが
+並存しており、`SCENoApplyLegacyAuditPolicy`(ローカルセキュリティポリシーの「詳細な監査ポリシー
+の構成を上書きする」に相当)が有効になっていないと、`auditpol`でサブカテゴリを個別に設定しても
+意図通りに反映されない(あるいはレガシー側の設定と競合して予期しない挙動になる)ことが
+Microsoft自身により文書化されている。今回の症状(狙ったサブカテゴリのイベントが出ず、
+無関係なサブカテゴリのイベントだけ大量に出る)は、この競合が起きた場合の典型的な症状と一致する。
+
+**不確かな点**: この環境では`secedit /export`等でレガシー監査ポリシーの実効値を直接確認する
+コマンドが管理者権限を要求し、こちらの検証環境(非昇格)からは確認できなかった。そのため
+「これが確実な原因である」と断定はできていないが、Microsoft公式に推奨されている前提条件が
+未設定だったこと、および症状のパターンが一致することから、最有力の仮説として対応した。
+
+### 対応
+
+`installer/auditlog.cpp`の`SetKernelObjectAuditSubcategory`に、`Kernel Object`サブカテゴリを
+有効化する前に`SCENoApplyLegacyAuditPolicy`を`1`に設定する処理(`ForceAdvancedAuditPolicy`)を
+追加した。`RunDisableAuditLog`側では(auditpolサブカテゴリ自体の無効化を行わないのと同じ理由で)
+元に戻さない — マシン全体設定であることに加え、これはMicrosoft自身が`auditpol`利用時に
+常時有効にすることを推奨している設定でもあるため、本機能を無効化した後も有効なままで
+問題ないと判断した。Subscription版の同ファイルにも同じ修正を反映済み。実機での最終確認は
+利用者側で`--disable-audit-log`→(修正版ビルドで)`--enable-audit-log`を再実行し、再起動後に
+イベントログ・トーストが機能するかを見て行う。
+
+**2026-08-10追記**: 上記の修正を反映して実機で`--enable-audit-log`を実行したところ、
+何も操作していないのにトースト通知が連続して表示され続ける("unknown process"表示、20件で停止)
+という新たな症状が発生した。20という件数は監査対象デバイス数(`\\.\interception00`〜`19`の
+ちょうど20個)と一致しており、原因は**`--enable-audit-log`自身が20個のデバイスそれぞれに
+`SetNamedSecurityInfoW`でSACLを設定する際、その設定操作自体がたった今設定したばかりの監査条件
+(`GENERIC_READ|GENERIC_WRITE`)に一致し、`OpenInputBridgeSetup.exe`自身を対象デバイスへの
+アクセス元として毎回記録してしまう**ことだと判明した。再適用タスクは起動のたびに同じ処理を行うため、
+放置すると**毎回の起動時に20回のトースト連発が発生し続ける**設計上の欠陥だった。
+
+対応として、`installer/toast-helper/main.cpp`にアクセス元プロセスの解決処理を拡張し、
+それが`OpenInputBridgeSetup.exe`自身だった場合はトーストを表示せず黙って終了するフィルターを
+追加した(`ProcessInfo::isOwnInstaller`)。監査ログ自体への記録(セキュリティイベントログ)は
+除外せず、あくまでトースト通知の表示だけを抑制する — 自己メンテナンス操作は「監査ログの
+完全性」の観点では記録して問題ないが、「利用者への通知」の観点では意味のあるイベントではない
+ため。Subscription版の同ファイルにも同じ修正を反映済み。
+
+なお、この検証中に「イベントID 4656は0件、4663は80件」という報告もあった。4656(ハンドル要求)と
+4663(アクセス実行)は本来近い場面で両方記録されることが多いが、トーストタスクのトリガーは
+`(EventID=4656 or EventID=4663)`と両方を監視する設計にしているため、4663のみでも動作上は
+問題ない。4656が0件である理由自体は未調査。
+
+**2026-08-10追記(2)**: `--enable-audit-log`を再実行するたびに4663が80件ずつ増える
+(20デバイス×4イベント/デバイス)一方、`identify2.exe`(`tests/upstream_lib/`、本家Interception
+互換クライアントライブラリを使用)を実行してもイベント数が一切変化しないことが分かった。
+これまで観測されていた4663は全て`--enable-audit-log`自身の自己メンテナンス操作によるもので、
+**Interceptionプロトコル互換クライアントの実際のアクセスは一度も監査に引っかかっていなかった**
+ことが判明した。
+
+原因は`third_party/interception/library/interception.c`を確認して特定した。本家Interception
+互換クライアントは各デバイスを`CreateFileA(device_name, GENERIC_READ, 0, NULL, OPEN_EXISTING,
+0, NULL)`で**`GENERIC_READ`のみを要求してオープンする**(`GENERIC_WRITE`は要求しない)。一方
+`installer/auditlog.cpp`の`BuildAuditSacl`は`AddAuditAccessAceEx`に`GENERIC_READ |
+GENERIC_WRITE`という**汎用アクセス権を表す生のビット値をそのままACEに格納**していた。
+ACEに格納するアクセスマスクは、あらかじめ対象オブジェクト種別の`GENERIC_MAPPING`で
+`FILE_GENERIC_READ`等の**個別アクセス権に変換してから**格納するのが正しい作法であり、
+生の汎用ビットのまま格納したACEは、実際のオープン要求(こちらもI/Oマネージャーによって
+個別アクセス権に変換されてから照合される)と正しく比較されない場合がある。DACL側
+(`driver/common/driver.c`の`OibControlDeviceSddl`)も同じ未変換の`"GRGW"`というSDDLトークンを
+使っているが、こちらは実際のアクセス制御(Everyoneがデバイスを開けること)が確認できている
+ため、DACLの照合とSACLの照合とで挙動に差があった可能性がある(明確な理由までは未確認)。
+
+### 対応
+
+`BuildAuditSacl`で`MapGenericMask`を使い、`GENERIC_READ | GENERIC_WRITE`を`SE_FILE_OBJECT`
+向けの`GENERIC_MAPPING`(`FILE_GENERIC_READ`/`FILE_GENERIC_WRITE`/`FILE_GENERIC_EXECUTE`/
+`FILE_ALL_ACCESS`)で個別アクセス権に変換してからACEに格納するように修正した。これは
+`ApplySaclToDevice`/`ClearSaclOnDevice`が既に`SE_FILE_OBJECT`として扱っているオブジェクト種別
+と一致する変換である。Subscription版の同ファイルにも同じ修正を反映済み。
+
+---
+
+## 2026-08-10: トースト自己ノイズ除外フィルターがPID解決の競合状態で不安定だった問題
+
+### 症状
+
+上記のGENERIC_READマッピング修正後、実機で`--enable-audit-log`/`--disable-audit-log`を
+繰り返し実行したところ、**同じコマンドを実行しても、トーストが20個出る場合と0個の場合が
+不規則に発生する**ことが分かった(`identify2.exe`実行では常にトースト無し・イベント数変化無し、
+という別問題も併発していたため、当初は判別が難しかった)。
+
+### 原因
+
+`installer/toast-helper/main.cpp`の自己ノイズ除外フィルター(`ProcessInfo::isOwnInstaller`)は、
+タスクから渡される`--process-id`を使って`OpenProcess`でプロセスイメージパスを**事後的に**
+解決し、それが`OpenInputBridgeSetup.exe`かどうかを判定する実装だった。しかし
+`--enable-audit-log`/`--disable-audit-log`/`--apply-audit-sacl`自体は20デバイスのループが
+1秒未満で完了し、プロセスもすぐ終了する。イベントの発生からタスクスケジューラーが
+`OibToastHelper.exe`を実際に起動するまでにはタイムラグがあるため、**トーストヘルパーが
+`OpenProcess`を呼ぶ時点で対象プロセスが既に終了していることが多く**、その場合`OpenProcess`が
+失敗して`isOwnInstaller`が既定値の`false`のまま(=トースト表示)にフォールバックしていた。
+つまりフィルターが機能するかどうかは、ヘルパーの起動がどれだけ速く行われるか という
+タイミング(競合状態)に左右されており、再現性が無かった。
+
+### 対応
+
+セキュリティ監査イベント(4656/4663)には、アクセス元プロセスの実行ファイルパスを表す
+`ProcessName`フィールドがイベント発生時点の情報として直接含まれている(マニフェストベースの
+`Microsoft-Windows-Security-Auditing`プロバイダーの標準フィールド)。事後的に`OpenProcess`で
+解決する代わりに、`installer/toastsetup.cpp`の`BuildToastTaskXml`にこのフィールドを取得する
+`ValueQueries`エントリ(`processName`)を追加し、`OibToastHelper.exe`に`--process-name`引数
+として直接渡すように変更した。これによりプロセスの生死に関係なく確実に解決できる。
+`ResolveProcessInfo`は`--process-name`が渡されればそれを最優先で使い、
+`--process-id`によるPID解決は(理論上到達しないはずだが)フォールバックとしてのみ残した。
+OSS版・Subscription版とも同じ修正を反映し、再ビルド確認済み。
+
+なお、既存のタスクスケジューラー登録は旧い(`ProcessName`を渡さない)定義のまま残るため、
+この修正の反映には`--enable-toast`の再実行(`/F`で上書き登録)が必要。
+
+---
+
+## 2026-08-10: GENERIC_READマッピング修正後も`identify2.exe`のアクセスだけ監査に載らない問題
+
+### 症状
+
+前項(GENERIC_READマッピング修正)の反映後も、実機で`--enable-audit-log`実行直後の
+自己ノイズ(トースト20連発、4663が80件ずつ増加)は相変わらず確実に再現する一方、
+`identify2.exe`(本家Interception互換クライアント)を実行してもイベント数
+(4656=0件, 4663=変化なし)は一切変わらないままだった。
+
+### 調査
+
+ユーザーから自己ノイズの実イベントXMLを1件共有してもらい、直接確認した:
+
+```
+ObjectType   = File
+ObjectName   = \Device\interception19
+AccessMask   = 0x1  (AccessList: %%4416 = "ReadData (or ListDirectory)")
+ProcessName  = ...\OpenInputBridgeSetup.exe
+```
+
+この時点で、まず`identify2.exe`自体が本当にデバイスのオープンに成功しているか
+(そもそも監査以前の問題でアクセス自体が失敗していないか)を利用者に確認したところ、
+キー入力/マウス操作は正常に検出できており、オープン自体は問題なく成功していることが
+分かった。
+
+次に`driver/common/driver.c`を確認し、各コントロールデバイスが`SetNamedSecurityInfoW`と
+同じ`SE_FILE_OBJECT`種別で扱われていること(`OibControlDeviceSddl`のDACL、
+`WdfControlDeviceInitAllocate`経由の生成)を再確認した。Windowsの詳細監査ポリシーでは、
+`SE_FILE_OBJECT`(セキュリティイベントログ上`ObjectType="File"`と記録されるもの全般 — 実ファイル
+かどうかを問わず、`CreateFile`系APIで開かれるオブジェクトはすべてこれに該当する)へのアクセス
+監査は本来**「ファイルシステム」サブカテゴリ**が管轄しており、**「カーネルオブジェクト」
+サブカテゴリではない**(後者はミューテックス/セマフォなど`OpenMutex`/`OpenSemaphore`系で
+開かれる真のNTカーネルオブジェクト向け)。今回`auditpol`で有効化していたのは「カーネル
+オブジェクト」(GUID `{0CCE921F-...}`)のみで、「ファイルシステム」(GUID
+`{0CCE9215-69AE-11D9-BED3-505054503030}`)は一度も有効化していなかった。
+
+自己ノイズ(`SetNamedSecurityInfoW`自身のアクセス)がなぜ「カーネルオブジェクト」有効化だけで
+記録されていたのかは完全には特定できていない(SACL書き込み自体に付随する別経路の監査である
+可能性がある)。ただし`identify2.exe`側の通常の`CreateFileA(GENERIC_READ)`オープンが
+`SE_FILE_OBJECT`として扱われ「ファイルシステム」サブカテゴリの管轄になるという点は
+Microsoftのドキュメント上明確であり、これが未有効化のままだったことが最有力の原因と判断した。
+
+### 対応
+
+`installer/auditlog.cpp`に「ファイルシステム」サブカテゴリのGUID定数
+(`FileSystemSubcategoryGuid`)を追加し、`RunEnableAuditLog`/`RunDisableAuditLog`で
+「カーネルオブジェクト」と「ファイルシステム」の**両方**を有効化/(残置)するように変更した
+(`SetKernelObjectAuditSubcategory`を`SetAuditSubcategory`+`SetObjectAccessAuditSubcategories`に
+分割)。自己ノイズ用に「カーネルオブジェクト」を無効化する理由はなく、どちらが実際に
+効いているか確証が持てない以上、両方有効化するのが安全側の対応と判断した。OSS版・
+Subscription版とも同じ修正を反映し、再ビルド確認済み。実機での`identify2.exe`実行時の
+イベント発生確認は次回のユーザーテストで検証予定。
+
+### 追記: `FileSystemSubcategoryGuid`のGUID自体が誤っていた
+
+上記対応版を実機で試した利用者から、`--enable-audit-log`実行(「"Kernel Object" and "File
+System" audit subcategories」というメッセージも確認済み)後も`identify2.exe`実行でイベント数が
+一切変化しないという報告があった。切り分けのため、実際に何のサブカテゴリが有効化されたのかを
+`auditpol /get /subcategory:{GUID}`で直接確認してもらったところ、次の重大な誤りが判明した:
+
+```
+auditpol /get /subcategory:"{0CCE9215-69AE-11D9-BED3-505054503030}"
+  -> カテゴリ「ログオン/ログオフ」、サブカテゴリ「ログオン」(成功および失敗)
+```
+
+つまり`FileSystemSubcategoryGuid`に設定していた`{0CCE9215-...}`は「ファイルシステム」ではなく
+**「ログオン」**サブカテゴリのGUIDだった(サブカテゴリGUID一覧を記憶から書き起こす際の
+思い違いが原因で、複数存在するよく似た連番GUIDのうち隣接する別サブカテゴリのものを
+取り違えた)。これにより、この時点までの`--enable-audit-log`実行は実質的に「カーネル
+オブジェクト」のみを有効化しており(意図せず「ログオン」の監査も有効化してしまっていたが、
+これはログオン成功/失敗という一般的によく有効化される項目であり実害は無い)、本来の狙いだった
+「ファイルシステム」サブカテゴリは一度も有効化されていなかった。
+
+正しい「ファイルシステム」サブカテゴリのGUIDは`{0CCE921D-69AE-11D9-BED3-505054503030}`
+(auditpolでの実機確認により裏付け済み)。`FileSystemSubcategoryGuid`をこの値に修正し、
+コメントに誤り経緯を明記した。OSS版・Subscription版とも修正・再ビルド確認済み。
+
+この件は「実装した対応が理論上正しいはずでも、実機のauditpol出力で実際に何が有効化された
+のかを直接確認するまでは信用しない」という、このセッション全体を通じた教訓を改めて裏付ける
+事例でもある。
+
+---
+
+## 2026-08-10: `identify2.exe`が監査に載らない根本原因 — 「ハンドル操作」サブカテゴリも必要だった
+
+### 経緯
+
+「ファイルシステム」GUIDの訂正版を実機で試した利用者から、`--enable-audit-log`実行後
+(`auditpol /get`で「ファイルシステム」が正しく「成功および失敗」になっていることも確認済み)
+も`identify2.exe`実行でイベント数が変化しないという報告が続いた。
+
+新設した`--dump-audit-sacl`診断コマンド(実装時、SACL読み取りにも`SeSecurityPrivilege`が
+必要な点を実装し忘れており、これも合わせて修正)で実際にデバイスに設定されているSACLを
+読み戻したところ、20台すべてで`mask=0x0012019f`(`FILE_GENERIC_READ | FILE_GENERIC_WRITE`と
+完全一致)、`sid=S-1-1-0`(Everyone)、`flags=0xc0`(成功・失敗とも監査)と、意図した通り
+正確な内容であることが確認できた。SACL自体・両サブカテゴリの設定とも理論上完璧に揃って
+いるにもかかわらず、`identify2.exe`だけが一切引っかからない状態が続いた。
+
+### 切り分け
+
+以下を実機で直接検証し、一つずつ仮説を消していった:
+
+1. **`identify2.exe`のオープン自体は成功しているか**: 利用者に確認したところ、キー入力/
+   マウス操作は正常に受信できており、デバイスのオープン自体は問題なく成功している
+   (アクセス制御=DACLの問題ではない)。
+2. **監査サブシステム自体がこのマシンで機能しているか**(制御対照実験): 通常のNTFSファイル
+   に同等のSACL(Everyone, Read/Write, 成功・失敗)をPowerShellの`Set-Acl`で設定し、別プロセス
+   (`Get-Content`)から読み取ったところ、**期待通り4663イベントが即座に記録された**。これに
+   より、このマシンの監査サブシステム自体は正常であり、問題は当ドライバのデバイスオブジェクト
+   固有の何かに絞り込まれた。
+3. **`identify2.exe`固有の問題か、それとも当該デバイスへのどんな通常オープンでも起きるか**:
+   ここでVS Codeを管理者権限で起動してもらったところ、Claude Code自身のシェル呼び出しもその
+   権限を継承していることに気づき、以降は直接検証を行った。管理者権限のPowerShellプロセスから
+   `CreateFile(GENERIC_READ)`のP/Invoke呼び出しで`\\.\interception00`を直接開いたところ、
+   オープン自体は成功する(`Opened OK`)ものの、**この場合もイベントは一切記録されなかった**。
+   これにより「`identify2.exe`固有」「非昇格プロセス固有」という仮説は完全に排除され、
+   問題はこのデバイスオブジェクトへの通常のCREATE操作全般に共通する何かだと判明した。
+
+### 原因
+
+自己ノイズ(`SetNamedSecurityInfoW`自身のアクセス)は確実に記録される一方、直接の
+`CreateFile(GENERIC_READ)`によるオープンは(管理者権限であっても)一切記録されないという
+非対称性から、試しに**「ハンドル操作」サブカテゴリ**(GUID
+`{0CCE9223-69AE-11D9-BED3-505054503030}`)を追加で有効化し、同じ`CreateFile(GENERIC_READ)`
+直接呼び出しを再実行したところ、**今度こそ`4656`(ハンドル要求)イベントが即座に記録され、
+`AccessMask=0x120089`(`FILE_GENERIC_READ`)とSACLの内容が正確に一致した**。
+
+通常のNTFSファイル(上記の制御対照実験)では「ファイルシステム」サブカテゴリ単体で4663が
+記録されたのに対し、`WdfControlDeviceInitAllocate`で作成した制御デバイスオブジェクトでは
+CREATE時の4656生成に「ハンドル操作」サブカテゴリも必要、という違いがあるらしいことが実機で
+裏付けられた。この非対称性の正確なWDF/オブジェクトマネージャー内部の理由までは特定できて
+いないが、auditpolでの有効化とプローブ結果による実証は揺るがない。
+
+### 対応
+
+`installer/auditlog.cpp`に`HandleManipulationSubcategoryGuid`定数を追加し、
+`SetObjectAccessAuditSubcategories`で「カーネルオブジェクト」「ファイルシステム」
+「ハンドル操作」の3つすべてを有効化するように変更した。OSS版・Subscription版とも修正・
+再ビルド確認済み。実機での`identify2.exe`実行時のイベント発生確認は次回のユーザーテストで
+最終検証予定。
+
+この一連の調査は、実機での地道な切り分け(制御対照実験、プロセス/権限を変えた再現テスト、
+診断コマンドによる状態の直接読み戻し)なしには到達できなかった。理論的な推測(「File System
+のはず」)が実際には不十分であり、さらに別のサブカテゴリが必要だったという事実は、Windows
+の詳細監査ポリシーがオブジェクトの種類(ここでは「通常のNTFSファイル」対「WDFの制御
+デバイスオブジェクト」)によって想定以上に細かく依存することを示している。
+
+利用者による実機再検証の結果、`identify2.exe`実行で狙い通りイベントが記録され、
+トースト通知も表示されることが確認できた(ただし後述の通り20件表示された)。これにより
+本機能は一連の実機デバッグを経て最終的に動作確認まで到達した。
+
+---
+
+## 2026-08-10: トーストの重複表示(1クライアント起動で20件)への対応
+
+### 症状
+
+上記の修正後、`identify2.exe`を実行すると期待通り監査イベントが記録されるようになったが、
+**トースト通知が1回のクライアント起動につき20件**表示されることが分かった。
+
+### 原因
+
+`third_party/interception/library/interception.c`の`interception_create_context()`は、
+起動時に`\\.\interception00`から`\\.\interception19`まで20台の制御デバイスを**ほぼ同時に
+全て**`CreateFileA`でオープンする(本家Interceptionプロトコルの仕様であり、
+`identify2.exe`固有ではなく、あらゆる互換クライアントに共通する挙動)。SACLはデバイスごとに
+独立して監査するため、この一括オープンは20個の独立したセキュリティイベントとなり、
+`installer/toastsetup.cpp`が登録するタスクスケジューラーのタスクもイベントごとに個別へ
+`OibToastHelper.exe`を起動する。結果として、1回のクライアント起動が20回のプロセス起動・
+20件のトースト表示につながっていた。
+
+### 対応
+
+`installer/toast-helper/main.cpp`に、直近の表示から短時間(3秒)以内に**同じプロセス名**からの
+トースト要求が来た場合は表示をスキップする、デバウンス処理を追加した(`ShouldSuppressAsDuplicate`)。
+`OibToastHelper.exe`は監査イベント1件につき独立した新規プロセスとして起動されるため、
+プロセス自身の変数では状態を持てない。そこで`%LOCALAPPDATA%\OpenInputBridge\
+toast_debounce.dat`に「最後に表示した時刻・プロセス名」を書き込み、以降の起動時にこれを
+参照する形で状態を永続化した。複数の`OibToastHelper.exe`インスタンスがほぼ同時に起動される
+ため、名前付きミューテックス(`Local\OpenInputBridge.ToastDebounce`)でこのファイルへの
+アクセスを直列化している。多少の競合(ミューテックス待機のタイムアウトなど)が残っても、
+最悪トーストが1件余分に出るだけであり、通知機能としては許容範囲と判断した。
+
+デバウンスの単位はプロセス名ベース(グローバルな時間ウィンドウではなく)とした。これは、
+ほぼ同時刻に**別の**クライアントが起動した場合(たとえば正規クライアントの直後に不審な
+プロセスが動いた場合)にまで通知を握りつぶしてしまうと、本機能の目的(異常なアクセスの
+可視化)を損なうと判断したため。監査ログ自体(セキュリティイベントログ)は一切間引かず、
+20件そのまま記録され続ける — 抑制するのはあくまでトースト表示のみ。
+
+OSS版・Subscription版とも同じ修正を反映し、再ビルド確認済み。
+
+---
+
+## 2026-08-10: トースト表示のホワイトリスト機能を追加
+
+### 背景
+
+利用者から、信頼している既知のInterception互換クライアントについては毎回のトースト通知を
+抑制したい(アラート疲れの防止)という要望があり、ホワイトリスト機能の追加を決定した。
+実装前に以下の3点を利用者と確認した:
+
+1. **抑制対象**: トースト表示のみ。監査ログ(セキュリティイベントログ)への記録は
+   ホワイトリスト登録の有無に関わらず全件継続する(`isOwnInstaller`と同じ方針 — 抑制するのは
+   あくまで「通知」であり、「記録」ではない)。監査ログ自体まで間引く案(SACLを動的に変える等)
+   は実装が複雑になり、監査の完全性という目的とも相反するため不採用。
+2. **保存場所**: レジストリ(`HKLM\SOFTWARE\OpenInputBridge`)。AUMID登録
+   (`HKLM\SOFTWARE\Classes\AppUserModelId\...`)と同様、マシン全体に効く設定はレジストリに
+   保存し、CLI(`--allow-process`/`--disallow-process`)で管理する方針とした。
+3. **照合粒度**: フルパス一致(ファイル名のみの一致ではない)。`isOwnInstaller`はファイル名
+   のみの照合で十分(固定の既知ファイル名1つだけを見分ければよいため)だが、ホワイトリストは
+   利用者が任意の第三者ソフトウェアを登録するものであり、ファイル名のみの照合だと同名の別
+   ソフトウェア(別フォルダにある無関係・場合によっては悪意のあるプロセス)まで巻き込んで
+   抑制してしまう。ただし、これはあくまで「通知を抑制するかどうか」の判定であり、デバイスへの
+   アクセス制御(DACL)や監査記録そのものには一切影響しないため、セキュリティ境界としての
+   厳密さを持つものではない。
+
+### 実装
+
+- `installer/toastsetup.h`/`.cpp`: `RunAllowProcess`/`RunDisallowProcess`/`RunListAllowedProcesses`
+  を追加。ホワイトリストは`HKLM\SOFTWARE\OpenInputBridge`キーの`ToastAllowedProcessPaths`値
+  (`REG_MULTI_SZ`、フルパスのリスト)に保存する。
+- `installer/main.cpp`: `--allow-process <フルパス>` / `--disallow-process <フルパス>` /
+  `--list-allowed-processes` のCLIサブコマンドを追加。前者2つは`argc==3`の専用ハンドリングを
+  新設(既存の`argc==2`単体コマンド群とは別枠)。
+- `installer/toast-helper/main.cpp`: `IsProcessAllowlisted`を追加し、`ResolveProcessInfo`が
+  返す`ProcessInfo`に新たに`fullPath`フィールド(イベントの`ProcessName`、またはPIDフォール
+  バック時は`QueryFullProcessImageNameW`の結果)を持たせて、これと照合する。判定順序は
+  `isOwnInstaller`確認 → ホワイトリスト確認 → デバウンス確認 → トースト表示、とした
+  (ホワイトリスト対象ならデバウンスの状態更新自体も行わない)。
+- レジストリキーパス・値名の文字列定数は、AUMID文字列(`ToastAppUserModelId`)と同様の理由
+  (`toastsetup.cpp`と`toast-helper/main.cpp`は別プロジェクトとしてビルドされ、ヘッダーを
+  共有できない)により、両ファイルにコメント付きで重複定義している。
+
+OSS版・Subscription版とも同じ修正を反映し、両方の実行ファイル(`OpenInputBridgeSetup.exe`、
+`OibToastHelper.exe`)を再ビルド確認済み。実機での動作確認は次回のユーザーテストで実施予定。

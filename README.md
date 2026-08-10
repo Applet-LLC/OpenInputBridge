@@ -105,6 +105,34 @@ keyboard --slots=15`とすると、キーボード15個・マウス5個の配分
 `OpenInputBridgeSetup.exe` は静的にCRTをリンクしているため、別途Visual C++
 再頒布可能パッケージをインストールする必要はありません。
 
+## 監査ログ・通知機能（オプション）
+
+`OpenInputBridgeSetup.exe`には、Interceptionプロトコル互換のコントロールデバイス
+（`\\.\interceptionNN`）を開いたプロセスをWindows標準のセキュリティイベントログに記録する
+監査ログ機能と、その発生をトースト通知でリアルタイムに知らせる通知機能を用意しています
+（いずれもデバイスドライバ自体は改変せず、OS標準機能のみで実装しています）。設計判断の詳細は
+[`docs/DECISIONS.md`](docs/DECISIONS.md)、既知の限界・検討した代替案は
+[`docs/SECURITY_CONSIDERATIONS.md`](docs/SECURITY_CONSIDERATIONS.md)を参照してください。
+
+**重要**: これらの機能は、zipを展開した場所にある`OpenInputBridgeSetup.exe`自身のフルパスを
+タスクスケジューラーのタスクに登録して動作します。そのため、**zipファイルを展開した場所は
+インストール後も削除・移動しないでください**。展開した場所がそのまま実質的なインストール先に
+なります。
+
+```bat
+:: 以下は管理者権限のコマンドプロンプトから実行してください
+OpenInputBridgeSetup.exe --enable-audit-log    & rem 監査ログを有効化
+OpenInputBridgeSetup.exe --disable-audit-log   & rem 無効化
+
+OpenInputBridgeSetup.exe --enable-toast        & rem トースト通知を有効化（監査ログの有効化が前提）
+OpenInputBridgeSetup.exe --disable-toast       & rem 無効化
+
+:: 信頼しているプロセスについては通知だけを抑制できます（監査ログ自体は引き続き全件記録されます）
+OpenInputBridgeSetup.exe --allow-process "C:\full\path\to\app.exe"
+OpenInputBridgeSetup.exe --disallow-process "C:\full\path\to\app.exe"
+OpenInputBridgeSetup.exe --list-allowed-processes
+```
+
 ## ビルド方法
 
 ### リポジトリの取得

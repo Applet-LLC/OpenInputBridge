@@ -17,7 +17,7 @@
 # configuration (Release -> "all package", ReleaseWHQL -> "whql package"). Called directly:
 #   nmake -f packaging\sign.mak            (sign, then stage into Signed\ — everything, EV-only)
 #   nmake -f packaging\sign.mak sign       (sign only: installer .exe + both driver .sys/.cat)
-#   nmake -f packaging\sign.mak sign-bin   (sign only: installer .exe)
+#   nmake -f packaging\sign.mak sign-bin   (sign only: installer .exe + toast helper .exe)
 #   nmake -f packaging\sign.mak sign-driver (sign only: both drivers' .sys/.cat)
 #   nmake -f packaging\sign.mak stage      (stage only, no signing)
 #   nmake -f packaging\sign.mak whql       (post-WHQL: sign+stage installer .exe and refresh
@@ -59,6 +59,13 @@
 # what's currently sitting in Signed\, so the same single step works regardless of which
 # pipeline (or manual copy) put it there.
 #
+# No GUI installer for this repo (see docs/DECISIONS.md's 2026-08-09 entry): OpenInputBridgeSetup.exe
+# itself is the only installer OSS users get — README.md/LICENSE are bundled alongside it (see
+# stage-bin) so the zip is self-explanatory on its own, and --enable-toast (installer/
+# toastsetup.cpp) creates its own Start Menu shortcut directly via IShellLink rather than relying
+# on a WiX-authored one. The sibling Pro/Subscription repos keep their own WiX MSI installers
+# (needed there for license-key entry UI), which vendor/rebuild from this same Signed\ output.
+#
 # Prerequisite: both drivers and the installer must already be built in Release|x64 (see
 # ..\OpenInputBridge.sln, or README.md's ビルド方法 for standalone project builds).
 # driver/keyboard/oib_kbd.vcxproj's and driver/mouse/oib_mou.vcxproj's Inf2Cat steps each
@@ -74,6 +81,10 @@
 # Distribution layout (matches what installer/install.cpp's InfPath lookup expects —
 # <exeDir>\<PackageName>\<PackageName>.inf per driver):
 #   OpenInputBridgeSetup.exe
+#   OibToastHelper.exe
+#   OibToastHelper.ico
+#   README.md
+#   LICENSE
 #   oib_kbd\oib_kbd.inf
 #   oib_kbd\oib_kbd.cat
 #   oib_kbd\oib_kbd.sys
@@ -116,6 +127,22 @@ TARGET_PDB_MOU	= ..\driver\mouse\x64\Release\oib_mou.pdb
 
 TARGET_BIN	= ..\installer\x64\Release\OpenInputBridgeSetup.exe
 
+# --enable-toast's Scheduled Task (installer/toastsetup.cpp) launches this; it must ship
+# alongside OpenInputBridgeSetup.exe the same way the driver packages do.
+TARGET_TOAST_HELPER	= ..\installer\toast-helper\x64\Release\OibToastHelper.exe
+
+# Loose copy of the same icon embedded in OibToastHelper.exe (installer/toast-helper/
+# OibToastHelper.rc) — toastsetup.cpp's RegisterAumid() needs a direct file path for the
+# AUMID's IconUri, not an embedded exe resource. Not a build output — copied straight from
+# source, so it's read from installer/toast-helper/ directly rather than an x64\Release\ dir.
+TARGET_TOAST_ICON	= ..\installer\toast-helper\OibToastHelper.ico
+
+# Not build outputs — copied straight from the repo root so end users unzipping the release
+# have README/LICENSE on hand without needing to visit the GitHub repo separately.
+TARGET_README	= ..\README.md
+
+TARGET_LICENSE	= ..\LICENSE
+
 SIGNED_DIR	= Signed
 
 # No intermediate "Drivers\" level: installer/install.cpp looks for
@@ -144,11 +171,14 @@ all: sign stage
 # an unsigned catalog is no better than no catalog at all for code-integrity purposes. .inf
 # and .pdb are not signed (an INF is plain text with no Authenticode container, and a PDB is a
 # debug-symbol file with no bearing on what actually loads/runs).
-sign: sign-bin sign-driver
+# sign: sign-bin sign-driver
+sign: sign-all
 
 sign-bin:
 		@echo [sign-bin] signing installer
 		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN)
+		@echo [sign-bin] signing toast helper
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_TOAST_HELPER)
 		@echo [sign-bin] done
 
 sign-driver:
@@ -158,8 +188,14 @@ sign-driver:
 		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_SYS_MOU) $(TARGET_CAT_MOU)
 		@echo [sign-driver] done
 
+sign-all:
+		@echo [sign-all] signing all files.
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN) $(TARGET_TOAST_HELPER) $(TARGET_SYS_KBD) $(TARGET_CAT_KBD) $(TARGET_SYS_MOU) $(TARGET_CAT_MOU)
+		@echo [sign-all] done
+
 verify:
 		$(SIGNTOOL) verify /v /pa $(TARGET_BIN)
+		$(SIGNTOOL) verify /v /pa $(TARGET_TOAST_HELPER)
 		$(SIGNTOOL) verify /v /pa $(TARGET_SYS_KBD)
 		$(SIGNTOOL) verify /v /pa $(TARGET_CAT_KBD)
 		$(SIGNTOOL) verify /v /pa $(TARGET_SYS_MOU)
@@ -176,7 +212,11 @@ stage: stage-bin stage-driver stage-symbol
 stage-bin:
 		@if not exist $(SIGNED_DIR) mkdir $(SIGNED_DIR)
 		copy /y $(TARGET_BIN) $(SIGNED_DIR)\.
-		@echo [stage-bin] copied installer into $(SIGNED_DIR)
+		copy /y $(TARGET_TOAST_HELPER) $(SIGNED_DIR)\.
+		copy /y $(TARGET_TOAST_ICON) $(SIGNED_DIR)\.
+		copy /y $(TARGET_README) $(SIGNED_DIR)\.
+		copy /y $(TARGET_LICENSE) $(SIGNED_DIR)\.
+		@echo [stage-bin] copied installer, toast helper, its icon, README, and LICENSE into $(SIGNED_DIR)
 
 stage-driver:
 		@if not exist $(SIGNED_DIR) mkdir $(SIGNED_DIR)

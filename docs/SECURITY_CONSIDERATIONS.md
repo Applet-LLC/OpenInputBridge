@@ -76,6 +76,19 @@ static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRG
   チート行為・無断監視目的での使用を禁止する条項を追加済み(2026年8月)。契約上の抑止力に留まり、
   技術的な防止策ではない点に注意
 - 本README(`README.md`)に、利用規約上の注意喚起とこのドキュメントへの参照を追加済み
+- **監査ログ・使用状況の可視化(SACL方式)、およびトースト通知**: デバイスドライバ本体
+  (`driver/`)を一切改変せず、`\\.\interceptionNN`各コントロールデバイスにSACL(監査ACE)を
+  付与し、Windows標準のオブジェクトアクセス監査(セキュリティイベントログ4656/4663)で
+  「どのプロセスがいつ開いたか」を記録する方式を採用することとし、2026年8月に設計を確定した。
+  SACLはコントロールデバイス再作成のたび(=ドライバサービス起動のたび)に失われるため、
+  タスクスケジューラのイベントトリガー式タスク(SCMのサービス開始イベントをトリガー)で
+  再適用する。あわせて、該当イベントを検知した際に利用者へその場で知らせるトースト通知
+  (専用AUMID `OpenInputBridge.AuditNotifier` 名義)も、ユーザーセッション内で実行される
+  タスクスケジューラのタスクとして同様に実装する。実装はOSS版`installer/`に一本化し、
+  Pro/Subscriptionの各インストーラーではオプション機能(Feature)として選択可能にする。
+  検討の詳細・不採用とした代替案(DACL絞り込み・許可リスト・常駐サービス化・
+  デバイスドライバ側への機能追加など)は`docs/DECISIONS.md`の
+  「2026-08-08: 監査ログ(SACL)・トースト通知機能の設計」を参照
 
 ## 5. 検討が必要な対策案(未着手)
 
@@ -86,9 +99,6 @@ static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRG
 - **消費側プロセスの許可リスト/署名検証**: コントロールデバイスを開けるプロセスを制限する案。
   ただしプロトコル仕様自体には存在しない拡張であり、既存クライアントとの互換性を損なう可能性が
   高い
-- **監査ログ・使用状況の可視化**: どのプロセスがいつ `\\.\interceptionNN` を開いたかを記録する
-  仕組み。パフォーマンスへの影響、プライバシー上の考慮(ユーザー自身の操作ログでもある)の検討が
-  必要
 - **利用者への周知の強化**: 購入・インストール時点での明示的な同意取得(現状はEULA記載のみ)
 
 これらは互換性・パフォーマンス・実装コストとのトレードオフが大きいため、着手する場合は個別に
@@ -99,5 +109,6 @@ static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRG
 - `driver/common/driver.c`(コントロールデバイスのACL定義)
 - [`docs/PROTOCOL.md`](PROTOCOL.md)(プロトコル仕様)
 - [`docs/CLEAN_ROOM.md`](CLEAN_ROOM.md)(実装の出自の証跡)
+- [`docs/DECISIONS.md`](DECISIONS.md)(監査ログ・トースト通知機能の設計判断・不採用案の詳細)
 - 商用版EULA: OpenInputBridge Pro / OpenInputBridge Subscription の
   `licensing/**/setup/License.ja-JP.rtf` / `License.en-US.rtf`(禁止事項の条項)

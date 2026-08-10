@@ -4,7 +4,12 @@ Copyright (c) 2026 OpenInputBridge Contributors
 SPDX-License-Identifier: MIT
 Licensed under the MIT License. See LICENSE file in the project root for full license text.
 
-Plain Win32 console application (not a driver project) — builds OpenInputBridgeSetup.exe.
+Plain Win32 application (not a driver project) — builds OibToastHelper.exe. Mirrors
+installer/OpenInputBridgeSetup.vcxproj's structure (see that file's own comments for why
+WindowsSdkDir/WindowsTargetPlatformVersion are spelled out explicitly rather than relying on
+Microsoft.Cpp.props' usual SDK auto-detection), except this is a <SubSystem>Windows</SubSystem>
+app with no admin manifest: it's launched by a per-user Scheduled Task (installer/toastsetup.cpp)
+in the interactively logged-on user's own session, not run elevated like OpenInputBridgeSetup.exe.
 -->
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
@@ -18,16 +23,8 @@ Plain Win32 console application (not a driver project) — builds OpenInputBridg
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{63B4A2EB-DF9A-46C4-BECD-D9B93186C785}</ProjectGuid>
-    <RootNamespace>OpenInputBridgeSetup</RootNamespace>
-    <!--
-      Deliberately not setting WindowsTargetPlatformVersion here: when built via the EWDK
-      (see /BuildEnv/SetupBuildEnv.cmd), it's already set in the environment to match the
-      EWDK's bundled SDK version, and vsdevcmd.bat is invoked with -winsdk=none (driver builds
-      resolve the SDK through WindowsSdkDir/WDKContentRoot themselves, not the normal SDK
-      auto-detection), so a plain Application project needs the IncludePath/LibraryPath below
-      spelled out explicitly rather than relying on Microsoft.Cpp.props' usual SDK discovery.
-    -->
+    <ProjectGuid>{272CBB57-766A-428F-8571-6A4623F3F926}</ProjectGuid>
+    <RootNamespace>OibToastHelper</RootNamespace>
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
     <Platform Condition="'$(Platform)' == ''">x64</Platform>
   </PropertyGroup>
@@ -44,12 +41,11 @@ Plain Win32 console application (not a driver project) — builds OpenInputBridg
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
   </ImportGroup>
   <PropertyGroup>
-    <!-- $(MSBuildProjectDirectory)-relative, not $(SolutionDir)-relative: packaging/sign.mak
-         hardcodes ..\installer\x64\$(Configuration)\ as this project's output location, so it
-         must stay put regardless of whether this project is built standalone or as part of
-         OpenInputBridge.sln (where $(SolutionDir) would otherwise be the repo root instead). -->
+    <!-- $(MSBuildProjectDirectory)-relative: packaging/sign.mak and the WiX staging scripts
+         (setup/Prepare-Staging.ps1 and its Pro/Subscription counterparts) expect this exe next
+         to OpenInputBridgeSetup.exe's own output, not under $(SolutionDir). -->
     <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
-    <TargetName>OpenInputBridgeSetup</TargetName>
+    <TargetName>OibToastHelper</TargetName>
     <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
     <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
@@ -59,37 +55,29 @@ Plain Win32 console application (not a driver project) — builds OpenInputBridg
       <TreatWarningAsError>true</TreatWarningAsError>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <SDLCheck>true</SDLCheck>
-      <!-- Source files are UTF-8 (no BOM) — see driver/keyboard/oib_kbd.vcxproj's equivalent
-           note for why this matters under a non-UTF-8 system code page. -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-      <!-- Static CRT: this exe is handed to end users standalone (unzipped next to the driver
-           package), and requiring a separately-installed VC++ Redistributable just to run an
-           installer is an avoidable extra step for them. -->
+      <!-- Static CRT: this exe is staged next to OpenInputBridgeSetup.exe and handed to end
+           users the same way (see that project's equivalent note). -->
       <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebug</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreaded</RuntimeLibrary>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <!-- Installing/removing a service and editing HKLM\SYSTEM\...\Class\{GUID}\UpperFilters
-           both require elevation; fail fast via the UAC prompt instead of failing partway
-           through with ERROR_ACCESS_DENIED (see common.cpp's IsRunningElevated check, which
-           still runs as defense in depth if this manifest is ever bypassed). -->
-      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
+      <!-- Windows (not Console) subsystem with the CRT's wide entry point: no console window
+           ever flashes when Task Scheduler launches this, while main.cpp still gets a plain
+           wmain(argc, argv) instead of having to be rewritten around wWinMain. -->
+      <SubSystem>Windows</SubSystem>
+      <EntryPointSymbol>wmainCRTStartup</EntryPointSymbol>
+      <AdditionalDependencies>runtimeobject.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="install.cpp" />
-    <ClCompile Include="uninstall.cpp" />
-    <ClCompile Include="common.cpp" />
-    <ClCompile Include="auditlog.cpp" />
-    <ClCompile Include="toastsetup.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="common.h" />
-    <ClInclude Include="auditlog.h" />
-    <ClInclude Include="toastsetup.h" />
+    <ResourceCompile Include="OibToastHelper.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="OibToastHelper.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

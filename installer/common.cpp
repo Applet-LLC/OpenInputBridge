@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 #include <cwctype>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
 
 namespace OpenInputBridge {
 
@@ -348,6 +351,86 @@ bool TryGetKeyboardSlotCount(DriverType type, ULONG& outKeyboardSlotCount)
 
     outKeyboardSlotCount = value;
     return true;
+}
+
+std::wstring GetInstallerExecutablePath()
+{
+    wchar_t modulePath[MAX_PATH];
+    GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+    return modulePath;
+}
+
+int RunSystem32Tool(const wchar_t* exeName, const std::wstring& arguments)
+{
+    wchar_t systemDirectory[MAX_PATH];
+    GetSystemDirectoryW(systemDirectory, MAX_PATH);
+
+    std::wstring commandLine =
+        L"\"" + std::wstring(systemDirectory) + L"\\" + exeName + L"\" " + arguments;
+
+    STARTUPINFOW startupInfo{ sizeof(startupInfo) };
+    PROCESS_INFORMATION processInfo{};
+
+    // CreateProcessW requires a mutable command-line buffer.
+    std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+    mutableCommandLine.push_back(L'\0');
+
+    if (!CreateProcessW(
+            nullptr, mutableCommandLine.data(), nullptr, nullptr, FALSE,
+            CREATE_NO_WINDOW, nullptr, nullptr, &startupInfo, &processInfo
+            )) {
+        wprintf(L"[ERROR] Failed to launch %s: %lu\n", exeName, GetLastError());
+        return -1;
+    }
+
+    WaitForSingleObject(processInfo.hProcess, INFINITE);
+
+    DWORD exitCode = 0;
+    GetExitCodeProcess(processInfo.hProcess, &exitCode);
+
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+
+    return static_cast<int>(exitCode);
+}
+
+bool RegisterScheduledTaskFromXml(const wchar_t* taskName, const std::wstring& taskXml)
+{
+    wchar_t tempDirectory[MAX_PATH];
+    GetTempPathW(MAX_PATH, tempDirectory);
+
+    std::filesystem::path tempFilePath =
+        std::filesystem::path(tempDirectory) / (std::wstring(taskName) + L".xml");
+
+    {
+        std::ofstream file(tempFilePath, std::ios::binary);
+        if (!file) {
+            wprintf(L"[ERROR] Failed to create temporary task definition file.\n");
+            return false;
+        }
+        const unsigned char bom[] = { 0xFF, 0xFE };
+        file.write(reinterpret_cast<const char*>(bom), sizeof(bom));
+        file.write(reinterpret_cast<const char*>(taskXml.data()), static_cast<std::streamsize>(taskXml.size() * sizeof(wchar_t)));
+    }
+
+    std::wstring arguments =
+        L"/Create /TN \"" + std::wstring(taskName) + L"\" /XML \"" + tempFilePath.wstring() + L"\" /F";
+    int exitCode = RunSystem32Tool(L"schtasks.exe", arguments);
+
+    std::error_code ec;
+    std::filesystem::remove(tempFilePath, ec);
+
+    if (exitCode != 0) {
+        wprintf(L"[ERROR] schtasks /Create failed for '%s' (exit code %d).\n", taskName, exitCode);
+        return false;
+    }
+    return true;
+}
+
+void UnregisterScheduledTask(const wchar_t* taskName)
+{
+    std::wstring arguments = L"/Delete /TN \"" + std::wstring(taskName) + L"\" /F";
+    RunSystem32Tool(L"schtasks.exe", arguments);
 }
 
 } // namespace OpenInputBridge

@@ -42,6 +42,7 @@
 #include <windows.h>
 
 #include <optional>
+#include <string>
 
 namespace OpenInputBridge {
 
@@ -124,5 +125,26 @@ bool TryGetKeyboardSlotCount(DriverType type, ULONG& outKeyboardSlotCount);
 // services' registrations in sync.
 int RunInstall(DriverType type, std::optional<ULONG> requestedSlots = std::nullopt);
 int RunUninstall(DriverType type);
+
+// Full path (as returned by GetModuleFileNameW) of the currently-running executable. Used by
+// auditlog.cpp/toastsetup.cpp to point Scheduled Task actions back at this same
+// OpenInputBridgeSetup.exe (for the audit-SACL reapply task) or at its sibling
+// OibToastHelper.exe (for the toast task).
+std::wstring GetInstallerExecutablePath();
+
+// Runs a well-known tool from %windir%\System32 by absolute path (deliberately never via PATH
+// search, since callers run elevated) and waits for it to exit. Returns the process's exit
+// code, or -1 if the process couldn't be started at all. Shared by auditlog.cpp (auditpol.exe,
+// schtasks.exe) and toastsetup.cpp (schtasks.exe).
+int RunSystem32Tool(const wchar_t* exeName, const std::wstring& arguments);
+
+// Writes taskXml to a temporary file (UTF-16LE with BOM, as schtasks.exe /XML requires) and
+// registers/overwrites it as taskName via `schtasks /Create ... /F`. The temp file is removed
+// afterward regardless of outcome. Returns false only if schtasks itself reports failure.
+bool RegisterScheduledTaskFromXml(const wchar_t* taskName, const std::wstring& taskXml);
+
+// Removes taskName via `schtasks /Delete ... /F`. Idempotent: does not report failure just
+// because taskName wasn't registered to begin with.
+void UnregisterScheduledTask(const wchar_t* taskName);
 
 } // namespace OpenInputBridge

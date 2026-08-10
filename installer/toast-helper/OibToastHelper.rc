@@ -1,0 +1,16 @@
+// Copyright (c) 2026 OpenInputBridge Contributors
+// SPDX-License-Identifier: MIT
+// Licensed under the MIT License. See LICENSE file in the project root for full license text.
+//
+// Embeds OibToastHelper.ico as this executable's icon. This is what gives the AUMID-driven
+// toast, Explorer, and the Start Menu shortcut Product.wxs creates for this exe (in this repo's
+// setup/ and the sibling Pro/Subscription repos' licensing/**/setup/) a real application icon
+// instead of a generic one — WiX's <Shortcut> element uses its target file's own icon when no
+// explicit Icon override is given, so embedding it here is sufficient; no separate WiX <Icon>
+// element is needed for the shortcut.
+//
+// See toastsetup.cpp's GetToastIconPath()/RegisterAumid() for the separate, loose copy of this
+// same file (staged as OibToastHelper.ico next to the exe) used for the AUMID's IconUri
+// registry value — that value must be a direct file path, not an embedded exe resource.
+
+101 ICON "OibToastHelper.ico"

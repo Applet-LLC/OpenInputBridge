@@ -9,8 +9,17 @@
 // or "mouse" to act on only that one driver. --slots=N (install + an explicit driver type
 // only) sets that driver's share of the 20 total slots — see common.h/install.cpp and
 // docs/DECISIONS.md's 2026-08-02 entry.
+//
+// The --enable-audit-log/--disable-audit-log and --enable-toast/--disable-toast pairs are
+// independent, optional features (see auditlog.h/toastsetup.h) invoked separately from the
+// driver install/uninstall above — a WiX installer's CustomActions call these the same way it
+// calls plain install/uninstall, once per Feature the user selected. --apply-audit-sacl is not
+// meant to be run interactively: it's the command the audit-log feature's own Scheduled Task
+// re-invokes on every service start (see auditlog.h).
 
 #include "common.h"
+#include "auditlog.h"
+#include "toastsetup.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -19,7 +28,12 @@
 
 namespace {
 
-const wchar_t* const kUsage = L"Usage: OpenInputBridgeSetup.exe [/uninstall] [keyboard|mouse] [--slots=N]\n";
+const wchar_t* const kUsage =
+    L"Usage: OpenInputBridgeSetup.exe [/uninstall] [keyboard|mouse] [--slots=N]\n"
+    L"       OpenInputBridgeSetup.exe --enable-audit-log | --disable-audit-log\n"
+    L"       OpenInputBridgeSetup.exe --enable-toast | --disable-toast\n"
+    L"       OpenInputBridgeSetup.exe --allow-process <full path> | --disallow-process <full path>\n"
+    L"       OpenInputBridgeSetup.exe --list-allowed-processes\n";
 
 } // namespace
 
@@ -29,6 +43,41 @@ int wmain(int argc, wchar_t* argv[])
     bool typeSpecified = false;
     OpenInputBridge::DriverType type = OpenInputBridge::DriverType::Keyboard;
     std::optional<ULONG> requestedSlots;
+
+    // These are standalone commands (each takes over the whole invocation), not modifiers
+    // combined with the driver install/uninstall arguments above.
+    if (argc == 2) {
+        if (_wcsicmp(argv[1], L"--enable-audit-log") == 0) {
+            return OpenInputBridge::RunEnableAuditLog();
+        }
+        if (_wcsicmp(argv[1], L"--disable-audit-log") == 0) {
+            return OpenInputBridge::RunDisableAuditLog();
+        }
+        if (_wcsicmp(argv[1], L"--apply-audit-sacl") == 0) {
+            return OpenInputBridge::RunApplyAuditSacl();
+        }
+        if (_wcsicmp(argv[1], L"--dump-audit-sacl") == 0) {
+            return OpenInputBridge::RunDumpAuditSacl();
+        }
+        if (_wcsicmp(argv[1], L"--enable-toast") == 0) {
+            return OpenInputBridge::RunEnableToast();
+        }
+        if (_wcsicmp(argv[1], L"--disable-toast") == 0) {
+            return OpenInputBridge::RunDisableToast();
+        }
+        if (_wcsicmp(argv[1], L"--list-allowed-processes") == 0) {
+            return OpenInputBridge::RunListAllowedProcesses();
+        }
+    }
+
+    if (argc == 3) {
+        if (_wcsicmp(argv[1], L"--allow-process") == 0) {
+            return OpenInputBridge::RunAllowProcess(argv[2]);
+        }
+        if (_wcsicmp(argv[1], L"--disallow-process") == 0) {
+            return OpenInputBridge::RunDisallowProcess(argv[2]);
+        }
+    }
 
     for (int i = 1; i < argc; ++i) {
         if (_wcsicmp(argv[i], L"/uninstall") == 0 || _wcsicmp(argv[i], L"-uninstall") == 0) {
@@ -51,10 +100,17 @@ int wmain(int argc, wchar_t* argv[])
             requestedSlots = static_cast<ULONG>(parsed);
         } else if (_wcsicmp(argv[i], L"/?") == 0 || _wcsicmp(argv[i], L"-help") == 0 || _wcsicmp(argv[i], L"/help") == 0) {
             wprintf(L"%s", kUsage);
-            wprintf(L"  keyboard|mouse : act on only this one driver (default: both).\n");
-            wprintf(L"  --slots=N      : (install only, requires keyboard|mouse) this driver's\n");
-            wprintf(L"                   share of the 20 total \\\\.\\interceptionNN slots (0-20).\n");
-            wprintf(L"                   The other driver's share is kept in sync automatically.\n");
+            wprintf(L"  keyboard|mouse      : act on only this one driver (default: both).\n");
+            wprintf(L"  --slots=N           : (install only, requires keyboard|mouse) this driver's\n");
+            wprintf(L"                        share of the 20 total \\\\.\\interceptionNN slots (0-20).\n");
+            wprintf(L"                        The other driver's share is kept in sync automatically.\n");
+            wprintf(L"  --enable-audit-log  : turn on Security-event-log auditing of control device access.\n");
+            wprintf(L"  --disable-audit-log : turn it back off.\n");
+            wprintf(L"  --enable-toast      : turn on toast notifications (requires audit-log enabled).\n");
+            wprintf(L"  --disable-toast     : turn them back off.\n");
+            wprintf(L"  --allow-process <full path>    : suppress toasts for this process (audit log is unaffected).\n");
+            wprintf(L"  --disallow-process <full path> : undo the above.\n");
+            wprintf(L"  --list-allowed-processes       : show the current toast-suppression allowlist.\n");
             return 0;
         } else {
             wprintf(L"[ERROR] Unrecognized argument: %s\n", argv[i]);
