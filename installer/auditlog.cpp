@@ -116,9 +116,20 @@ bool BuildAuditSacl(std::vector<BYTE>& aclBuffer, PACL& outAcl)
     return true;
 }
 
+// Distinguishes "actually wrote/cleared the SACL" from "the device doesn't exist right now"
+// (ERROR_FILE_NOT_FOUND — expected if only one of the keyboard/mouse drivers is installed, see
+// docs/DECISIONS.md's 2026-08-02 entry, or if neither has created its control devices yet, e.g.
+// right after a fresh install before the first reboot) and from a genuine hard failure. Collapsing
+// NotPresent into "success" (as this used to do via a plain bool) made ForEachControlDevice's
+// count indistinguishable between "applied to N devices" and "N devices simply don't exist" —
+// see docs/DECISIONS.md's 2026-08-11 audit-log/toast review entry for the two call sites
+// (RunApplyAuditSacl, RunEnableAuditLog) whose own "0 means something's wrong" logic that bug
+// silently defeated.
+enum class SaclOpResult { Applied, NotPresent, Failed };
+
 // Clears the SACL to empty (used, empty ACL — not nullptr/"no SACL", which SetNamedSecurityInfo
 // treats as "leave whatever is there alone" rather than "remove it").
-bool ClearSaclOnDevice(const std::wstring& devicePath)
+SaclOpResult ClearSaclOnDevice(const std::wstring& devicePath)
 {
     BYTE emptyAclBuffer[sizeof(ACL)];
     PACL emptyAcl = reinterpret_cast<PACL>(emptyAclBuffer);
@@ -129,14 +140,17 @@ bool ClearSaclOnDevice(const std::wstring& devicePath)
         nullptr, nullptr, nullptr, emptyAcl
         );
 
-    if (result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND) {
-        wprintf(L"[WARN] Failed to clear audit SACL on %s: %lu\n", devicePath.c_str(), result);
-        return false;
+    if (result == ERROR_FILE_NOT_FOUND) {
+        return SaclOpResult::NotPresent;
     }
-    return true;
+    if (result != ERROR_SUCCESS) {
+        wprintf(L"[WARN] Failed to clear audit SACL on %s: %lu\n", devicePath.c_str(), result);
+        return SaclOpResult::Failed;
+    }
+    return SaclOpResult::Applied;
 }
 
-bool ApplySaclToDevice(const std::wstring& devicePath, PACL sacl)
+SaclOpResult ApplySaclToDevice(const std::wstring& devicePath, PACL sacl)
 {
     DWORD result = SetNamedSecurityInfoW(
         const_cast<LPWSTR>(devicePath.c_str()), SE_FILE_OBJECT, SACL_SECURITY_INFORMATION,
@@ -147,13 +161,13 @@ bool ApplySaclToDevice(const std::wstring& devicePath, PACL sacl)
         // Expected if only one of the keyboard/mouse drivers is installed (not the normal
         // configuration — see docs/DECISIONS.md's 2026-08-02 entry — but not a hard error
         // here either).
-        return true;
+        return SaclOpResult::NotPresent;
     }
     if (result != ERROR_SUCCESS) {
         wprintf(L"[WARN] Failed to set audit SACL on %s: %lu\n", devicePath.c_str(), result);
-        return false;
+        return SaclOpResult::Failed;
     }
-    return true;
+    return SaclOpResult::Applied;
 }
 
 // Diagnostic only (--dump-audit-sacl): reads back whatever SACL is actually live on a device
@@ -228,8 +242,9 @@ void DumpAuditSaclForDevice(const std::wstring& devicePath)
 
 // Applies (apply=true) or clears (apply=false) the audit SACL on every \\.\interceptionNN in
 // 0..TotalDeviceSlotCount-1. Devices that don't currently exist (ERROR_FILE_NOT_FOUND) are
-// silently skipped rather than treated as failures. Returns the number of devices the SACL was
-// successfully applied to/cleared from.
+// silently skipped rather than treated as failures, and are NOT counted in the returned total —
+// see SaclOpResult's comment for why that distinction matters to this function's callers.
+// Returns the number of devices the SACL was actually applied to/cleared from.
 int ForEachControlDevice(bool apply)
 {
     std::vector<BYTE> aclBuffer;
@@ -240,15 +255,15 @@ int ForEachControlDevice(bool apply)
         return 0;
     }
 
-    int successCount = 0;
+    int appliedCount = 0;
     for (ULONG index = 0; index < TotalDeviceSlotCount; ++index) {
         std::wstring devicePath = BuildDevicePath(index);
-        bool ok = apply ? ApplySaclToDevice(devicePath, sacl) : ClearSaclOnDevice(devicePath);
-        if (ok) {
-            ++successCount;
+        SaclOpResult result = apply ? ApplySaclToDevice(devicePath, sacl) : ClearSaclOnDevice(devicePath);
+        if (result == SaclOpResult::Applied) {
+            ++appliedCount;
         }
     }
-    return successCount;
+    return appliedCount;
 }
 
 // auditpol.exe's /subcategory parameter matches against the *localized display name* of the
@@ -440,7 +455,7 @@ int RunEnableAuditLog()
     }
 
     if (!EnablePrivilege(SE_SECURITY_NAME)) {
-        wprintf(L"[ERROR] Failed to enable SeSecurityPrivilege — cannot set an audit SACL.\n");
+        wprintf(L"[ERROR] Failed to enable SeSecurityPrivilege -- cannot set an audit SACL.\n");
         return 1;
     }
 
@@ -454,7 +469,7 @@ int RunEnableAuditLog()
         // driver running) picks this up automatically on the next boot, via its own BootTrigger.
         // Contrast with RunApplyAuditSacl, where finding 0 devices genuinely is an error (it
         // only runs at boot, i.e. exactly when the driver should already be up).
-        wprintf(L"No \\\\.\\interceptionNN devices are active yet (driver not running — a reboot "
+        wprintf(L"No \\\\.\\interceptionNN devices are active yet (driver not running -- a reboot "
                 L"may be required first). The SACL will be applied automatically once it starts.\n");
     } else {
         wprintf(L"Applied audit SACL to %d control device(s).\n", appliedCount);
@@ -483,7 +498,7 @@ int RunDisableAuditLog()
     }
 
     if (!EnablePrivilege(SE_SECURITY_NAME)) {
-        wprintf(L"[ERROR] Failed to enable SeSecurityPrivilege — cannot clear the audit SACL.\n");
+        wprintf(L"[ERROR] Failed to enable SeSecurityPrivilege -- cannot clear the audit SACL.\n");
         return 1;
     }
 
@@ -518,7 +533,7 @@ int RunDumpAuditSacl()
     // Reading a SACL requires ACCESS_SYSTEM_SECURITY on the open GetNamedSecurityInfoW performs
     // internally, same as writing one — see BuildAuditSacl's neighboring EnablePrivilege call.
     if (!EnablePrivilege(SE_SECURITY_NAME)) {
-        wprintf(L"[ERROR] Failed to enable SeSecurityPrivilege — cannot read the audit SACL.\n");
+        wprintf(L"[ERROR] Failed to enable SeSecurityPrivilege -- cannot read the audit SACL.\n");
         return 1;
     }
 
