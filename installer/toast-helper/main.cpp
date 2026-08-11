@@ -24,6 +24,7 @@
 // flashes a console window when Task Scheduler launches it — it has no need for one either way.
 
 #include <windows.h>
+#include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <roapi.h>
@@ -59,6 +60,11 @@ const wchar_t kAppUserModelId[] = L"OpenInputBridge.AuditNotifier";
 
 const wchar_t kDeviceObjectPrefix[] = L"\\Device\\interception";
 
+// Must match installer/toastsetup.cpp's own copy of this string exactly — see kAppUserModelId's
+// comment above for why constants shared across the installer and this separately-built helper
+// are kept in sync as separate, commented definitions rather than via a shared header.
+const wchar_t kRevealProtocolName[] = L"oib-reveal";
+
 struct Args {
     std::wstring objectName;
     std::wstring processId;
@@ -93,7 +99,7 @@ struct ProcessInfo {
     // --enable-audit-log / --apply-audit-sacl (installer/auditlog.cpp, run once at setup and
     // again on every boot via the reapply Scheduled Task) opens every \\.\interceptionNN device
     // to (re)apply the SACL — and that open matches the very audit criteria it just set, so it
-    // self-triggers a 4656/4663 for each of the (up to 20) devices, every single time. That's
+    // self-triggers a 4656 for each of the (up to 20) devices, every single time. That's
     // routine self-maintenance, not a genuine "something is using the interception protocol"
     // event worth a notification, so wmain skips showing a toast for it.
     bool isOwnInstaller = false;
@@ -215,6 +221,76 @@ std::wstring XmlEscape(const std::wstring& text)
     return escaped;
 }
 
+// Percent-encodes text (first converted to UTF-8, then each non-unreserved byte encoded
+// individually — the standard way to percent-encode text that may contain non-ASCII
+// characters, e.g. a path under a non-English username) for embedding in the toast's "launch"
+// URI (see ShowToast). Only this program's own UriDecode below ever has to parse the result
+// (via oib-reveal:'s registered command, --reveal), so exact RFC 3986 conformance doesn't
+// matter here — round-tripping correctly through both does.
+std::wstring UriEncode(const std::wstring& text)
+{
+    int utf8Length = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (utf8Length <= 0) {
+        return {};
+    }
+    std::vector<char> utf8(utf8Length);
+    WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, utf8.data(), utf8Length, nullptr, nullptr);
+
+    std::wstring encoded;
+    for (int i = 0; i + 1 < utf8Length; ++i) { // -1: WideCharToMultiByte's trailing null terminator.
+        unsigned char byte = static_cast<unsigned char>(utf8[i]);
+        bool isUnreserved =
+            (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') ||
+            (byte >= '0' && byte <= '9') || byte == '-' || byte == '_' || byte == '.' || byte == '~';
+        if (isUnreserved) {
+            encoded += static_cast<wchar_t>(byte);
+        } else {
+            wchar_t buffer[4];
+            swprintf_s(buffer, L"%%%02X", byte);
+            encoded += buffer;
+        }
+    }
+    return encoded;
+}
+
+std::wstring UriDecode(const std::wstring& text)
+{
+    std::string utf8Bytes;
+    utf8Bytes.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == L'%' && i + 2 < text.size()) {
+            wchar_t hex[3] = { text[i + 1], text[i + 2], 0 };
+            utf8Bytes += static_cast<char>(wcstoul(hex, nullptr, 16));
+            i += 2;
+        } else {
+            utf8Bytes += static_cast<char>(text[i]);
+        }
+    }
+
+    int wideLength = MultiByteToWideChar(CP_UTF8, 0, utf8Bytes.c_str(), -1, nullptr, 0);
+    if (wideLength <= 0) {
+        return {};
+    }
+    std::vector<wchar_t> wide(wideLength);
+    MultiByteToWideChar(CP_UTF8, 0, utf8Bytes.c_str(), -1, wide.data(), wideLength);
+    return wide.data();
+}
+
+// Opens Explorer with path selected within its containing folder (clicking a toast's body —
+// see ShowToast's "launch" URI and RegisterRevealProtocol in toastsetup.cpp) rather than a
+// plain "open the folder" — lets whoever's reading the notification jump straight to
+// inspecting the actual accessing binary. Uses an absolute path to explorer.exe (like
+// installer/common.cpp's RunSystem32Tool) rather than relying on PATH search.
+void RevealInExplorer(const std::wstring& path)
+{
+    wchar_t windowsDirectory[MAX_PATH];
+    GetWindowsDirectoryW(windowsDirectory, MAX_PATH);
+    std::wstring explorerPath = std::wstring(windowsDirectory) + L"\\explorer.exe";
+
+    std::wstring arguments = L"/select,\"" + path + L"\"";
+    ShellExecuteW(nullptr, L"open", explorerPath.c_str(), arguments.c_str(), nullptr, SW_SHOWNORMAL);
+}
+
 const wchar_t kDebounceMutexName[] = L"Local\\OpenInputBridge.ToastDebounce";
 constexpr ULONGLONG kDebounceWindow100ns = 3ULL * 10'000'000; // 3 seconds, in FILETIME units.
 
@@ -311,10 +387,21 @@ HRESULT ActivateInstance(const wchar_t* runtimeClassName, ComPtr<T>& instance)
     return inspectable.As(&instance);
 }
 
-HRESULT ShowToast(const std::wstring& deviceName, const std::wstring& processName, const std::wstring& userName)
+// processFullPath, when known, makes the toast's body clickable: it opens Explorer with the
+// accessing process's binary selected (RevealInExplorer, via the oib-reveal: protocol
+// RegisterRevealProtocol in toastsetup.cpp registers). Left empty (no launch/activationType
+// attributes added — an ordinary, non-clickable toast) when it isn't: the PID-fallback path in
+// ResolveProcessInfo can leave ProcessInfo::fullPath empty, and there's nothing to reveal then.
+HRESULT ShowToast(const std::wstring& deviceName, const std::wstring& processName, const std::wstring& userName, const std::wstring& processFullPath)
 {
+    std::wstring launchAttributes;
+    if (!processFullPath.empty()) {
+        std::wstring launchUri = std::wstring(kRevealProtocolName) + L":" + UriEncode(processFullPath);
+        launchAttributes = L" launch=\"" + XmlEscape(launchUri) + L"\" activationType=\"protocol\"";
+    }
+
     std::wstring toastXml =
-        L"<toast><visual><binding template=\"ToastGeneric\">"
+        L"<toast" + launchAttributes + L"><visual><binding template=\"ToastGeneric\">"
         L"<text>OpenInputBridge</text>"
         L"<text>" + XmlEscape(deviceName) + L" was opened by " + XmlEscape(processName) +
         L" (" + XmlEscape(userName) + L")</text>"
@@ -374,6 +461,20 @@ HRESULT ShowToast(const std::wstring& deviceName, const std::wstring& processNam
 
 int wmain(int argc, wchar_t* argv[])
 {
+    // A completely separate invocation mode: Windows launches this program with these two
+    // arguments (see toastsetup.cpp's RegisterRevealProtocol) when the user clicks a toast's
+    // body — the full oib-reveal:<encoded path> URI arrives as argv[2] verbatim, prefix
+    // included, exactly as registered in the protocol's command string. Never reaches
+    // ParseArgs/ShowToast below; this either reveals the file or does nothing.
+    if (argc >= 3 && _wcsicmp(argv[1], L"--reveal") == 0) {
+        std::wstring uri = argv[2];
+        std::wstring prefix = std::wstring(kRevealProtocolName) + L":";
+        if (_wcsnicmp(uri.c_str(), prefix.c_str(), prefix.size()) == 0) {
+            RevealInExplorer(UriDecode(uri.substr(prefix.size())));
+        }
+        return 0;
+    }
+
     Args args = ParseArgs(argc, argv);
 
     if (args.objectName.empty() ||
@@ -404,7 +505,7 @@ int wmain(int argc, wchar_t* argv[])
         return 1;
     }
 
-    HRESULT hr = ShowToast(args.objectName, processInfo.displayName, args.user);
+    HRESULT hr = ShowToast(args.objectName, processInfo.displayName, args.user, processInfo.fullPath);
 
     RoUninitialize();
     return SUCCEEDED(hr) ? 0 : 1;

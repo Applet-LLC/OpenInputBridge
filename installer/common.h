@@ -86,6 +86,19 @@ inline constexpr ULONG DefaultKeyboardSlotCount = 10;
 // editing HKLM\SYSTEM both require this.
 bool IsRunningElevated();
 
+// True if this machine's *native* OS (not this process's own architecture, which matters since
+// an x64 process can run under emulation on ARM64 — GetNativeSystemInfo reports the real one)
+// is x64, and its build number is at least 18362 (Windows 10 version 1903, "May 2019 Update").
+// This is the actual technical floor main.cpp's version gate enforces; see kUnsupportedEnvironmentMessage
+// there for why the message shown to users names Windows 11 (the officially supported target)
+// instead of citing 1903 — this floor is deliberately kept a bit below that as headroom, not as
+// a line customers should read as "supported down to here". A kernel driver for a Windows
+// version/architecture combination it was never built or tested against isn't just "maybe
+// works" — it can BSOD or silently corrupt input handling, so this is checked before any
+// install action proceeds (main.cpp's --skip-version-check exists for the Pro/Subscription
+// installers' own use, in case their own MSI's CustomAction sequence needs to bypass this).
+bool IsSupportedWindowsEnvironment();
+
 // True if a service named serviceName is currently registered with the SCM (regardless of
 // its running state).
 bool ServiceExists(const wchar_t* serviceName);
@@ -106,6 +119,12 @@ bool StopAndWaitService(const wchar_t* serviceName, DWORD timeoutMs);
 // (e.g. after an earlier install that predates this position-aware logic) self-corrects
 // rather than leaving a stale duplicate.
 bool ModifyUpperFilters(const wchar_t* classGuidString, const wchar_t* entryName, bool add, const wchar_t* insertBeforeName);
+
+// True if entryName currently appears in classGuidString's class-level UpperFilters list (the
+// per-*instance* overrides ModifyUpperFilters also maintains are not consulted here — the
+// class-level list is the primary, always-present indicator "did this installer register
+// itself here" cares about). False if the class key or the value itself doesn't exist.
+bool IsRegisteredAsUpperFilter(const wchar_t* classGuidString, const wchar_t* entryName);
 
 // Writes KeyboardSlotCountValueName (REG_DWORD) under type's own service \Parameters key
 // (created if the Parameters subkey doesn't exist yet — the service key itself must already
@@ -135,8 +154,11 @@ std::wstring GetInstallerExecutablePath();
 // Runs a well-known tool from %windir%\System32 by absolute path (deliberately never via PATH
 // search, since callers run elevated) and waits for it to exit. Returns the process's exit
 // code, or -1 if the process couldn't be started at all. Shared by auditlog.cpp (auditpol.exe,
-// schtasks.exe) and toastsetup.cpp (schtasks.exe).
-int RunSystem32Tool(const wchar_t* exeName, const std::wstring& arguments);
+// schtasks.exe) and toastsetup.cpp (schtasks.exe). suppressOutput redirects the child's
+// stdout/stderr/stdin to NUL — for a call like ScheduledTaskExists's below, where a "not found"
+// result is an expected, routine outcome, not something schtasks's own console error text
+// should narrate.
+int RunSystem32Tool(const wchar_t* exeName, const std::wstring& arguments, bool suppressOutput = false);
 
 // Writes taskXml to a temporary file (UTF-16LE with BOM, as schtasks.exe /XML requires) and
 // registers/overwrites it as taskName via `schtasks /Create ... /F`. The temp file is removed
@@ -146,5 +168,12 @@ bool RegisterScheduledTaskFromXml(const wchar_t* taskName, const std::wstring& t
 // Removes taskName via `schtasks /Delete ... /F`. Idempotent: does not report failure just
 // because taskName wasn't registered to begin with.
 void UnregisterScheduledTask(const wchar_t* taskName);
+
+// True if taskName is currently registered with Task Scheduler. verify.cpp uses this against
+// auditlog.h's AuditLogReapplyTaskName / toastsetup.h's ToastNotifyTaskName as a proxy for
+// "is the audit-log/toast-notification feature enabled" — a registered reapply/notify task is
+// exactly the artifact RunEnableAuditLog/RunEnableToast create and RunDisableAuditLog/
+// RunDisableToast remove, so it's a reliable signal without duplicating either feature's logic.
+bool ScheduledTaskExists(const wchar_t* taskName);
 
 } // namespace OpenInputBridge

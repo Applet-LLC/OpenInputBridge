@@ -8,6 +8,7 @@
 
 #include <string>
 #include <vector>
+#include <cstdlib>
 #include <cwctype>
 #include <cstdio>
 #include <filesystem>
@@ -51,6 +52,39 @@ bool IsRunningElevated()
 
     CloseHandle(token);
     return isElevated != FALSE;
+}
+
+bool IsSupportedWindowsEnvironment()
+{
+    SYSTEM_INFO systemInfo{};
+    GetNativeSystemInfo(&systemInfo); // native architecture even if this process runs under emulation.
+    if (systemInfo.wProcessorArchitecture != PROCESSOR_ARCHITECTURE_AMD64) {
+        return false;
+    }
+
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0,
+            KEY_QUERY_VALUE, &key
+            ) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    wchar_t buildNumberText[32]{};
+    DWORD size = sizeof(buildNumberText);
+    DWORD type = 0;
+    LONG result = RegQueryValueExW(
+        key, L"CurrentBuildNumber", nullptr, &type,
+        reinterpret_cast<BYTE*>(buildNumberText), &size
+        );
+    RegCloseKey(key);
+
+    if (result != ERROR_SUCCESS || type != REG_SZ) {
+        return false;
+    }
+
+    constexpr unsigned long kMinimumSupportedBuildNumber = 18362; // Windows 10 1903.
+    return wcstoul(buildNumberText, nullptr, 10) >= kMinimumSupportedBuildNumber;
 }
 
 bool ServiceExists(const wchar_t* serviceName)
@@ -301,6 +335,27 @@ bool ModifyUpperFilters(const wchar_t* classGuidString, const wchar_t* entryName
     return succeeded;
 }
 
+bool IsRegisteredAsUpperFilter(const wchar_t* classGuidString, const wchar_t* entryName)
+{
+    std::wstring classKeyPath =
+        std::wstring(L"SYSTEM\\CurrentControlSet\\Control\\Class\\") + classGuidString;
+
+    HKEY classKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, classKeyPath.c_str(), 0, KEY_QUERY_VALUE, &classKey) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    std::vector<std::wstring> entries = ReadMultiSz(classKey, UpperFiltersValueNameInternal);
+    RegCloseKey(classKey);
+
+    for (const std::wstring& entry : entries) {
+        if (EqualsCaseInsensitive(entry, entryName)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool SetKeyboardSlotCount(DriverType type, ULONG keyboardSlotCount)
 {
     std::wstring parametersKeyPath =
@@ -360,7 +415,7 @@ std::wstring GetInstallerExecutablePath()
     return modulePath;
 }
 
-int RunSystem32Tool(const wchar_t* exeName, const std::wstring& arguments)
+int RunSystem32Tool(const wchar_t* exeName, const std::wstring& arguments, bool suppressOutput)
 {
     wchar_t systemDirectory[MAX_PATH];
     GetSystemDirectoryW(systemDirectory, MAX_PATH);
@@ -371,14 +426,39 @@ int RunSystem32Tool(const wchar_t* exeName, const std::wstring& arguments)
     STARTUPINFOW startupInfo{ sizeof(startupInfo) };
     PROCESS_INFORMATION processInfo{};
 
+    // Only opened/inherited when suppressing: CreateFileW("NUL") needs an inheritable handle,
+    // and CreateProcessW's bInheritHandles must be TRUE for the child to actually receive it —
+    // neither is otherwise how this function behaves, so both are scoped to this case only.
+    HANDLE nulHandle = INVALID_HANDLE_VALUE;
+    if (suppressOutput) {
+        SECURITY_ATTRIBUTES inheritable{ sizeof(inheritable), nullptr, TRUE };
+        nulHandle = CreateFileW(
+            L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &inheritable,
+            OPEN_EXISTING, 0, nullptr
+            );
+        if (nulHandle != INVALID_HANDLE_VALUE) {
+            startupInfo.dwFlags |= STARTF_USESTDHANDLES;
+            startupInfo.hStdInput = nulHandle;
+            startupInfo.hStdOutput = nulHandle;
+            startupInfo.hStdError = nulHandle;
+        }
+    }
+
     // CreateProcessW requires a mutable command-line buffer.
     std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
     mutableCommandLine.push_back(L'\0');
 
-    if (!CreateProcessW(
-            nullptr, mutableCommandLine.data(), nullptr, nullptr, FALSE,
-            CREATE_NO_WINDOW, nullptr, nullptr, &startupInfo, &processInfo
-            )) {
+    BOOL created = CreateProcessW(
+        nullptr, mutableCommandLine.data(), nullptr, nullptr,
+        nulHandle != INVALID_HANDLE_VALUE ? TRUE : FALSE,
+        CREATE_NO_WINDOW, nullptr, nullptr, &startupInfo, &processInfo
+        );
+
+    if (nulHandle != INVALID_HANDLE_VALUE) {
+        CloseHandle(nulHandle);
+    }
+
+    if (!created) {
         wprintf(L"[ERROR] Failed to launch %s: %lu\n", exeName, GetLastError());
         return -1;
     }
@@ -431,6 +511,12 @@ void UnregisterScheduledTask(const wchar_t* taskName)
 {
     std::wstring arguments = L"/Delete /TN \"" + std::wstring(taskName) + L"\" /F";
     RunSystem32Tool(L"schtasks.exe", arguments);
+}
+
+bool ScheduledTaskExists(const wchar_t* taskName)
+{
+    std::wstring arguments = L"/Query /TN \"" + std::wstring(taskName) + L"\"";
+    return RunSystem32Tool(L"schtasks.exe", arguments, /*suppressOutput=*/true) == 0;
 }
 
 } // namespace OpenInputBridge

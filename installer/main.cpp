@@ -15,16 +15,29 @@
 // driver install/uninstall above — a WiX installer's CustomActions call these the same way it
 // calls plain install/uninstall, once per Feature the user selected. --apply-audit-sacl is not
 // meant to be run interactively: it's the command the audit-log feature's own Scheduled Task
-// re-invokes on every service start (see auditlog.h).
+// re-invokes on every service start (see auditlog.h). --verify-install (see verify.h) is meant
+// to be run once, after both of the above, by packaging/setup.bat.
+//
+// Every invocation (regardless of which of the above) is gated on
+// common.h's IsSupportedWindowsEnvironment() first, unless --skip-version-check is also passed
+// — this driver has only ever been built/tested for x64 Windows 10 1903+ (see that function's
+// own comment for why the message below still cites Windows 11), and installing a kernel
+// driver on an unsupported combination risks a BSOD or silent input-handling corruption, not
+// just "might not work". --skip-version-check exists for the Pro/Subscription editions' own
+// WiX installers, which call this executable from a CustomAction sequence that may already
+// have its own, equivalent precondition checks earlier in the UI flow.
 
 #include "common.h"
 #include "auditlog.h"
 #include "toastsetup.h"
+#include "verify.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace {
 
@@ -33,12 +46,33 @@ const wchar_t* const kUsage =
     L"       OpenInputBridgeSetup.exe --enable-audit-log | --disable-audit-log\n"
     L"       OpenInputBridgeSetup.exe --enable-toast | --disable-toast\n"
     L"       OpenInputBridgeSetup.exe --allow-process <full path> | --disallow-process <full path>\n"
-    L"       OpenInputBridgeSetup.exe --list-allowed-processes\n";
+    L"       OpenInputBridgeSetup.exe --list-allowed-processes\n"
+    L"       OpenInputBridgeSetup.exe --verify-install\n";
+
+const wchar_t* const kUnsupportedEnvironmentMessage = L"This is the wrong Windows version. It's for Windows 11.\n";
 
 } // namespace
 
 int wmain(int argc, wchar_t* argv[])
 {
+    // --skip-version-check is filtered out here rather than handled inline below, so every
+    // other command (the argc==2/argc==3 dispatch, and the install/uninstall argument loop)
+    // can keep working against a plain positional argument list, unaware this flag exists.
+    std::vector<std::wstring> args;
+    bool skipVersionCheck = false;
+    for (int i = 1; i < argc; ++i) {
+        if (_wcsicmp(argv[i], L"--skip-version-check") == 0) {
+            skipVersionCheck = true;
+        } else {
+            args.emplace_back(argv[i]);
+        }
+    }
+
+    if (!skipVersionCheck && !OpenInputBridge::IsSupportedWindowsEnvironment()) {
+        wprintf(L"%s", kUnsupportedEnvironmentMessage);
+        return 1;
+    }
+
     bool uninstall = false;
     bool typeSpecified = false;
     OpenInputBridge::DriverType type = OpenInputBridge::DriverType::Keyboard;
@@ -46,59 +80,62 @@ int wmain(int argc, wchar_t* argv[])
 
     // These are standalone commands (each takes over the whole invocation), not modifiers
     // combined with the driver install/uninstall arguments above.
-    if (argc == 2) {
-        if (_wcsicmp(argv[1], L"--enable-audit-log") == 0) {
+    if (args.size() == 1) {
+        if (_wcsicmp(args[0].c_str(), L"--enable-audit-log") == 0) {
             return OpenInputBridge::RunEnableAuditLog();
         }
-        if (_wcsicmp(argv[1], L"--disable-audit-log") == 0) {
+        if (_wcsicmp(args[0].c_str(), L"--disable-audit-log") == 0) {
             return OpenInputBridge::RunDisableAuditLog();
         }
-        if (_wcsicmp(argv[1], L"--apply-audit-sacl") == 0) {
+        if (_wcsicmp(args[0].c_str(), L"--apply-audit-sacl") == 0) {
             return OpenInputBridge::RunApplyAuditSacl();
         }
-        if (_wcsicmp(argv[1], L"--dump-audit-sacl") == 0) {
+        if (_wcsicmp(args[0].c_str(), L"--dump-audit-sacl") == 0) {
             return OpenInputBridge::RunDumpAuditSacl();
         }
-        if (_wcsicmp(argv[1], L"--enable-toast") == 0) {
+        if (_wcsicmp(args[0].c_str(), L"--enable-toast") == 0) {
             return OpenInputBridge::RunEnableToast();
         }
-        if (_wcsicmp(argv[1], L"--disable-toast") == 0) {
+        if (_wcsicmp(args[0].c_str(), L"--disable-toast") == 0) {
             return OpenInputBridge::RunDisableToast();
         }
-        if (_wcsicmp(argv[1], L"--list-allowed-processes") == 0) {
+        if (_wcsicmp(args[0].c_str(), L"--list-allowed-processes") == 0) {
             return OpenInputBridge::RunListAllowedProcesses();
         }
-    }
-
-    if (argc == 3) {
-        if (_wcsicmp(argv[1], L"--allow-process") == 0) {
-            return OpenInputBridge::RunAllowProcess(argv[2]);
-        }
-        if (_wcsicmp(argv[1], L"--disallow-process") == 0) {
-            return OpenInputBridge::RunDisallowProcess(argv[2]);
+        if (_wcsicmp(args[0].c_str(), L"--verify-install") == 0) {
+            return OpenInputBridge::RunVerifyInstall();
         }
     }
 
-    for (int i = 1; i < argc; ++i) {
-        if (_wcsicmp(argv[i], L"/uninstall") == 0 || _wcsicmp(argv[i], L"-uninstall") == 0) {
+    if (args.size() == 2) {
+        if (_wcsicmp(args[0].c_str(), L"--allow-process") == 0) {
+            return OpenInputBridge::RunAllowProcess(args[1]);
+        }
+        if (_wcsicmp(args[0].c_str(), L"--disallow-process") == 0) {
+            return OpenInputBridge::RunDisallowProcess(args[1]);
+        }
+    }
+
+    for (const std::wstring& arg : args) {
+        if (_wcsicmp(arg.c_str(), L"/uninstall") == 0 || _wcsicmp(arg.c_str(), L"-uninstall") == 0) {
             uninstall = true;
-        } else if (_wcsicmp(argv[i], L"keyboard") == 0) {
+        } else if (_wcsicmp(arg.c_str(), L"keyboard") == 0) {
             type = OpenInputBridge::DriverType::Keyboard;
             typeSpecified = true;
-        } else if (_wcsicmp(argv[i], L"mouse") == 0) {
+        } else if (_wcsicmp(arg.c_str(), L"mouse") == 0) {
             type = OpenInputBridge::DriverType::Mouse;
             typeSpecified = true;
-        } else if (_wcsnicmp(argv[i], L"--slots=", 8) == 0) {
-            const wchar_t* numberText = argv[i] + 8;
+        } else if (_wcsnicmp(arg.c_str(), L"--slots=", 8) == 0) {
+            const wchar_t* numberText = arg.c_str() + 8;
             wchar_t* endPtr = nullptr;
             unsigned long parsed = wcstoul(numberText, &endPtr, 10);
 
             if (numberText[0] == L'\0' || *endPtr != L'\0') {
-                wprintf(L"[ERROR] --slots requires a non-negative integer: %s\n", argv[i]);
+                wprintf(L"[ERROR] --slots requires a non-negative integer: %s\n", arg.c_str());
                 return 1;
             }
             requestedSlots = static_cast<ULONG>(parsed);
-        } else if (_wcsicmp(argv[i], L"/?") == 0 || _wcsicmp(argv[i], L"-help") == 0 || _wcsicmp(argv[i], L"/help") == 0) {
+        } else if (_wcsicmp(arg.c_str(), L"/?") == 0 || _wcsicmp(arg.c_str(), L"-help") == 0 || _wcsicmp(arg.c_str(), L"/help") == 0) {
             wprintf(L"%s", kUsage);
             wprintf(L"  keyboard|mouse      : act on only this one driver (default: both).\n");
             wprintf(L"  --slots=N           : (install only, requires keyboard|mouse) this driver's\n");
@@ -111,9 +148,12 @@ int wmain(int argc, wchar_t* argv[])
             wprintf(L"  --allow-process <full path>    : suppress toasts for this process (audit log is unaffected).\n");
             wprintf(L"  --disallow-process <full path> : undo the above.\n");
             wprintf(L"  --list-allowed-processes       : show the current toast-suppression allowlist.\n");
+            wprintf(L"  --verify-install                : check driver/audit-log/toast state after installing.\n");
+            wprintf(L"  --skip-version-check             : bypass the Windows version/architecture check\n");
+            wprintf(L"                                     (for the Pro/Subscription installers' own use).\n");
             return 0;
         } else {
-            wprintf(L"[ERROR] Unrecognized argument: %s\n", argv[i]);
+            wprintf(L"[ERROR] Unrecognized argument: %s\n", arg.c_str());
             wprintf(L"%s", kUsage);
             return 1;
         }

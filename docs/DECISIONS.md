@@ -817,3 +817,157 @@ OSS版・Subscription版とも同じ修正を反映し、再ビルド確認済�
 
 OSS版・Subscription版とも同じ修正を反映し、両方の実行ファイル(`OpenInputBridgeSetup.exe`、
 `OibToastHelper.exe`)を再ビルド確認済み。実機での動作確認は次回のユーザーテストで実施予定。
+
+---
+
+## 2026-08-11: OS/アーキテクチャ事前チェックとインストール後の自己診断(`--verify-install`)を追加
+
+### 背景
+
+`setup.bat`によるワンクリックインストールを安全にするため、以下2点を追加した。
+
+1. **対応環境の事前チェック**: x64かつWindows 10 バージョン1903(May 2019 Update、ビルド18362)
+   以降でなければインストール作業に進まないようにする。対応外環境でカーネルドライバの
+   インストールを試みることは、BSODやサイレントな入力破損につながりかねないため、
+   `setup.bat`側(PowerShellでの事前チェック、UAC昇格より前に実施し無駄な昇格プロンプトを
+   避ける)と`OpenInputBridgeSetup.exe`自身の両方でチェックする(`common.cpp`の
+   `IsSupportedWindowsEnvironment`)。表向きの対応OSはWindows 11以上のため、エラー
+   メッセージは技術的な下限(1903)ではなく「This is the wrong Windows version. It's for
+   Windows 11.」とした。アーキテクチャは`GetNativeSystemInfo`で確認する(自プロセスが
+   ARM64上でx64エミュレーションされている可能性があるため、`GetSystemInfo`ではなく
+   ネイティブアーキテクチャを返すこちらを使用)。
+   Pro/Subscription版は自前のインストーラーにこのチェックを別途組み込む予定のため、
+   `OpenInputBridgeSetup.exe`をそちらのインストーラーから呼び出す際に干渉する場合に備え、
+   `--skip-version-check`で無効化できるようにした。
+
+2. **インストール後の自己診断(`--verify-install`、新設`installer/verify.cpp`)**:
+   - **フィルタ登録の整合性確認**: `UpperFilters`にドライバがフィルタとして登録されている
+     のに、そのサービスの`ImagePath`が指す実体ファイルが存在しない場合(インストールが
+     途中で失敗した、等)、**そのまま再起動するとキーボード/マウスが完全に使用不能になる**
+     という重大な事故につながる。これを検知した場合、フィルタ登録自体を削除し、
+     「インストールが正しく完了していないためフィルタ登録を削除した」旨のエラーメッセージを
+     表示する。`ImagePath`の実際の値は実機で確認済み
+     (`\SystemRoot\System32\DriverStore\FileRepository\oib_kbd.inf_.../oib_kbd.sys`、
+     `REG_EXPAND_SZ`だが`%変数%`形式ではなくリテラルな`\SystemRoot\`プレフィックス)で、
+     これを踏まえて`ResolveServiceImagePath`で解決している。
+   - **監査ログ・トースト通知の有効化リマインダー**: 監査ログ・トースト通知機能を
+     ユーザーが選択しなかった場合でも、`--verify-install`実行時に「このデバイスドライバは
+     管理者権限の無いプロセスからでも誰でもアクセスできるため、ログ記録やトースト通知の
+     有効化を検討してください」という内容の英文メッセージを表示する(有効化自体は強制
+     しない、あくまで気づきを促すリマインダーとして)。有効化判定は、監査ログ再適用タスク
+     (`AuditLogReapplyTaskName`)・トースト通知タスク(`ToastNotifyTaskName`)がタスク
+     スケジューラーに登録されているかどうかで判断する(そのため両定数を`auditlog.h`/
+     `toastsetup.h`でpublicに公開し直した)。
+
+`setup.bat`は、OS/アーキテクチャチェック → 昇格 → ドライバインストール →
+`--enable-audit-log` → `--enable-toast` → `--verify-install`、の順に実行するよう更新した。
+
+### 実装メモ
+
+- `RunSystem32Tool`に`suppressOutput`引数を追加(NULデバイスへのリダイレクト)。
+  `schtasks /Query`でタスクの存在有無を確認する`ScheduledTaskExists`は、タスクが無い
+  (=機能無効、正常な状態)場合でも`schtasks`自身が「見つかりません」的なメッセージを標準
+  出力に出すため、これを抑制する目的で追加した。
+- `common.cpp`に`IsRegisteredAsUpperFilter`(クラスレベルの`UpperFilters`に対象が含まれるか
+  確認するだけの読み取り専用関数)を追加。`ModifyUpperFilters`の内部ヘルパー
+  (`ReadMultiSz`等)を流用している。
+- `main.cpp`は`--skip-version-check`をargv走査の最初の段階で取り除き、残りの引数だけで
+  従来通りの分岐処理(`argc==2`相当の単体コマンド群、`argc==3`相当の`--allow-process`等、
+  インストール/アンインストール引数のループ)を行うよう作り直した
+  (`std::vector<std::wstring>`ベースに変更)。
+
+OSS版・Subscription版とも同じ修正を反映し、再ビルド確認済み。Pro/Subscription版の
+インストーラー側(WiX)への`--verify-install`/`--skip-version-check`の組み込みは、今回は
+対象外(各インストーラー側で別途検討予定)。実機での動作確認(管理者権限が必要なため)は
+次回のユーザーテストで実施予定。
+
+---
+
+## 2026-08-11: `setup.bat`が改行コード(LF)のせいでcmd.exeに正しく解釈されなかった問題
+
+### 症状
+
+利用者が`setup.bat`を実行したところ、PowerShell・コマンドプロンプトのどちらからでも、
+`rem`コメント行の内容(`Copyright`等)がそのままコマンドとして実行されようとしたり、
+`OpenInputBridgeSetup.exe --enable-audit-log`の`--enable-audit-log`部分だけが独立した
+未知のコマンドとして扱われたりするなど、構文エラーが多発した。
+
+### 原因
+
+`setup.bat`のファイル本体が、改行コードLF(`\n`)のみで保存されていた(CRLF`\r\n`ではなく)。
+cmd.exeのバッチパーサーは、単純な単一行コマンドであればLFのみでもおおむね動作するが、
+このファイルにある`if not "..." ( ... )`のような複数行にまたがる括弧ブロックの解析は
+CRLFを前提としており、LFのみの場合に解析が崩れることが実機で確認された。同じ問題が
+`driver/build_codeql.bat`にも(単純な単一行コマンドのみのため表面化していなかったが)
+存在していた。
+
+さらに調査したところ、このリポジトリには`.gitattributes`が存在せず、利用者の
+`git config core.autocrlf`は`true`だった。これは「git内部の保存形式はLF、チェックアウト時に
+そのマシンの設定でCRLFへ変換する」という挙動のため、**このマシンではコミット後も
+正しくCRLFへ復元されるが、`core.autocrlf`が`false`または未設定の環境(Linux/Mac、あるいは
+明示的に無効化しているWindows環境)でこのリポジトリをcloneすると、保存されているLFが
+そのままチェックアウトされ、今回と同じバグが再発する**ことが分かった。
+
+### 対応
+
+1. `packaging/setup.bat`・`driver/build_codeql.bat`の実体をCRLFに変換した。
+2. リポジトリ直下に`.gitattributes`を新設し、`*.bat text eol=crlf`を追加。これにより
+   `.bat`ファイルは、チェックアウトする側の`core.autocrlf`設定に関係なく常にCRLFで
+   チェックアウトされるようになる(gitが比較・保存に使う正規化後の内容は変わらないため、
+   他の`.cpp`/`.h`/`.md`ファイルの扱いには影響しない)。
+
+---
+
+## 2026-08-11: トーストをクリックすると該当プロセスの実体をエクスプローラーで選択表示する機能を追加
+
+### 背景
+
+利用者から、トースト通知をクリックした際に、検知したプロセス(バイナリ)の実体があるフォルダを
+開き、可能であればそのファイルを選択状態にしたい、という要望があった。
+
+### 検討した実現方式
+
+トースト本体のクリック(WinRTでは「アクティブ化」と呼ぶ)をハンドルするには、大きく分けて
+以下2通りの方式がある。
+
+1. **COMベースのトースト アクティベーション**(`INotificationActivationCallback`実装 +
+   `ToastActivatorCLSID`登録): Microsoftの標準的な非パッケージ化デスクトップアプリ向け
+   実装方式だが、COMローカルサーバー(`IClassFactory`/`INotificationActivationCallback`の
+   実装、CLSID登録、`-Embedding`起動への対応等)を新規に実装する必要があり、実装コストが高い。
+2. **プロトコルアクティベーション**(`<toast launch="..." activationType="protocol">`):
+   トーストに独自スキームのURI(例: `oib-reveal:...`)を`launch`属性として持たせ、そのスキームを
+   通常のURIプロトコルハンドラー(`HKEY_CLASSES_ROOT`配下の`shell\open\command`)として
+   レジストリに登録するだけで、クリック時にWindowsが登録済みコマンドを起動してくれる。
+   常駐リスナーもCOMサーバーも不要で、既存の`OibToastHelper.exe`(1回起動して終了する
+   使い捨てプロセス)というアーキテクチャとも自然に整合する。
+
+実装コストと、既存アーキテクチャ(常駐プロセスを持たない設計)との親和性から、2の
+プロトコルアクティベーション方式を採用した。
+
+### 実装
+
+- **`installer/toastsetup.cpp`**: `RegisterRevealProtocol`/`UnregisterRevealProtocol`を追加。
+  `HKLM\SOFTWARE\Classes\oib-reveal`に、`URL Protocol`値と
+  `shell\open\command`(`"<OibToastHelper.exeのパス>" --reveal "%1"`)を登録する。
+  `RunEnableToast`/`RunDisableToast`から、既存のAUMID登録/解除と同様のタイミングで
+  呼び出す(AUMID登録直後に登録、Scheduled Task/Start Menuショートカット解除と同様の
+  タイミングで解除)。
+- **`installer/toast-helper/main.cpp`**:
+  - `ShowToast`に`processFullPath`引数を追加。値がある場合、`<toast>`要素に
+    `launch="oib-reveal:<percent-encodeしたフルパス>"`と`activationType="protocol"`属性を
+    付与する(値が空の場合は従来通りクリック不可の通常トーストのまま — PIDフォールバック
+    経路で`fullPath`が解決できなかった場合に相当)。
+  - `UriEncode`/`UriDecode`を追加。パスをいったんUTF-8へ変換してからバイト単位で
+    percent-encodeする方式とし、日本語ユーザー名を含むパス等、非ASCII文字を含むパスも
+    正しく往復できるようにした。
+  - `wmain`の先頭に、`--reveal <uri>`呼び出し(Windowsがプロトコルハンドラー経由で
+    起動する際の引数)を検出する分岐を追加。既存のトースト表示ロジック(`--object-name`等)
+    とは完全に独立したコードパスとして扱う。`oib-reveal:`プレフィックスを取り除いて
+    percent-decodeした後、`RevealInExplorer`で`explorer.exe /select,"<path>"`を起動する。
+
+登録スコープはAUMIDと同様HKLM(マシン全体)とした。クリックした際にどのユーザーの
+セッションで処理されても機能するようにするため。
+
+OSS版・Subscription版とも同じ修正を反映し、両方の実行ファイル(`OpenInputBridgeSetup.exe`、
+`OibToastHelper.exe`)を再ビルド確認済み。実機での動作確認(トーストクリック→
+エクスプローラーでの選択表示)は次回のユーザーテストで実施予定。

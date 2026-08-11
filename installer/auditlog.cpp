@@ -20,8 +20,6 @@ namespace OpenInputBridge {
 
 namespace {
 
-inline constexpr wchar_t ReapplyTaskName[] = L"OpenInputBridgeAuditLogReapply";
-
 std::wstring BuildDevicePath(ULONG index)
 {
     wchar_t path[32];
@@ -161,7 +159,7 @@ bool ApplySaclToDevice(const std::wstring& devicePath, PACL sacl)
 // Diagnostic only (--dump-audit-sacl): reads back whatever SACL is actually live on a device
 // right now via GetNamedSecurityInfoW, independent of what this installer thinks it set —
 // added because real-machine testing kept finding that a genuine Interception-protocol client's
-// CreateFileA(GENERIC_READ) open of a device never generates 4656/4663 even after confirming
+// CreateFileA(GENERIC_READ) open of a device never generates 4656 even after confirming
 // (via auditpol) that both the "Kernel Object" and "File System" subcategories are on, which
 // leaves "is the ACE we intended to write actually the one sitting on the live object" as the
 // one remaining unverified assumption. See docs/DECISIONS.md's 2026-08-10 entry.
@@ -469,10 +467,10 @@ int RunEnableAuditLog()
             L"and enabled the \"Kernel Object\", \"File System\", and \"Handle Manipulation\" "
             L"audit subcategories (success + failure).\n");
 
-    if (!RegisterScheduledTaskFromXml(ReapplyTaskName, BuildReapplyTaskXml(GetInstallerExecutablePath()))) {
+    if (!RegisterScheduledTaskFromXml(AuditLogReapplyTaskName, BuildReapplyTaskXml(GetInstallerExecutablePath()))) {
         return 1;
     }
-    wprintf(L"Registered the '%s' Scheduled Task to reapply the SACL on every service start.\n", ReapplyTaskName);
+    wprintf(L"Registered the '%s' Scheduled Task to reapply the SACL on every service start.\n", AuditLogReapplyTaskName);
 
     return 0;
 }
@@ -490,7 +488,7 @@ int RunDisableAuditLog()
     }
 
     ForEachControlDevice(false);
-    UnregisterScheduledTask(ReapplyTaskName);
+    UnregisterScheduledTask(AuditLogReapplyTaskName);
 
     // Deliberately not disabling the "Kernel Object"/"File System"/"Handle Manipulation" auditpol subcategories
     // here — see auditlog.h's comment on RunDisableAuditLog.

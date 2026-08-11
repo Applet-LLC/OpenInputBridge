@@ -25,7 +25,6 @@ namespace {
 
 using Microsoft::WRL::ComPtr;
 
-inline constexpr wchar_t ToastTaskName[] = L"OpenInputBridgeToastNotify";
 inline constexpr wchar_t ToastHelperExeName[] = L"OibToastHelper.exe";
 
 // Name of both the Start Menu subfolder (under the all-users Programs folder) and the .lnk
@@ -44,6 +43,11 @@ inline constexpr wchar_t AumidRegistryKeyPrefix[] = L"SOFTWARE\\Classes\\AppUser
 // rather than via a shared header.
 inline constexpr wchar_t ToastAllowlistKeyPath[] = L"SOFTWARE\\OpenInputBridge";
 inline constexpr wchar_t ToastAllowlistValueName[] = L"ToastAllowedProcessPaths";
+
+// Must match installer/toast-helper/main.cpp's own copy of kRevealProtocolName exactly — same
+// reasoning as above.
+inline constexpr wchar_t RevealProtocolName[] = L"oib-reveal";
+inline constexpr wchar_t RevealProtocolKeyPath[] = L"SOFTWARE\\Classes\\oib-reveal";
 
 std::filesystem::path GetToastHelperPath()
 {
@@ -251,10 +255,84 @@ void UnregisterAumid()
     RegDeleteTreeW(HKEY_LOCAL_MACHINE, keyPath.c_str());
 }
 
+// Registers oib-reveal: as a custom URI protocol whose handler command re-invokes
+// OibToastHelper.exe with --reveal (see installer/toast-helper/main.cpp's own handling and
+// RevealInExplorer there) to open Explorer with the accessing process's binary selected. This
+// is what lets a toast's body (see ShowToast's "launch"/"activationType=protocol" attributes)
+// respond to a click at all, without this feature needing a persistent listener process or a
+// full COM toast-activation server (INotificationActivationCallback) — protocol activation is
+// the simpler, still fully Microsoft-documented alternative for exactly this "launch something
+// when the toast is clicked" scenario. HKLM (not HKCU), matching the AUMID registration above,
+// so it works regardless of which user's session ends up handling the click. See
+// docs/DECISIONS.md's 2026-08-11 entry.
+bool RegisterRevealProtocol(const std::filesystem::path& helperPath)
+{
+    HKEY protocolKey = nullptr;
+    LONG result = RegCreateKeyExW(
+        HKEY_LOCAL_MACHINE, RevealProtocolKeyPath, 0, nullptr,
+        REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &protocolKey, nullptr
+        );
+    if (result != ERROR_SUCCESS) {
+        wprintf(L"[ERROR] Failed to create the %s protocol registry key: %ld\n", RevealProtocolName, result);
+        return false;
+    }
+
+    const wchar_t description[] = L"URL:OpenInputBridge Reveal Protocol";
+    const wchar_t empty[] = L"";
+    bool ok =
+        RegSetValueExW(
+            protocolKey, nullptr, 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(description), sizeof(description)
+            ) == ERROR_SUCCESS &&
+        RegSetValueExW(
+            protocolKey, L"URL Protocol", 0, REG_SZ,
+            reinterpret_cast<const BYTE*>(empty), sizeof(empty)
+            ) == ERROR_SUCCESS;
+    RegCloseKey(protocolKey);
+
+    if (!ok) {
+        wprintf(L"[ERROR] Failed to write %s protocol registry values.\n", RevealProtocolName);
+        return false;
+    }
+
+    std::wstring commandKeyPath = std::wstring(RevealProtocolKeyPath) + L"\\shell\\open\\command";
+    HKEY commandKey = nullptr;
+    result = RegCreateKeyExW(
+        HKEY_LOCAL_MACHINE, commandKeyPath.c_str(), 0, nullptr,
+        REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &commandKey, nullptr
+        );
+    if (result != ERROR_SUCCESS) {
+        wprintf(L"[ERROR] Failed to create the %s command registry key: %ld\n", RevealProtocolName, result);
+        return false;
+    }
+
+    // Windows substitutes the whole clicked URI (scheme included, e.g.
+    // "oib-reveal:C%3A%5C...") for %1 verbatim; --reveal strips the "oib-reveal:" prefix and
+    // percent-decodes the rest itself.
+    std::wstring command = L"\"" + helperPath.wstring() + L"\" --reveal \"%1\"";
+    LONG commandResult = RegSetValueExW(
+        commandKey, nullptr, 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(command.c_str()),
+        static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t))
+        );
+    RegCloseKey(commandKey);
+
+    if (commandResult != ERROR_SUCCESS) {
+        wprintf(L"[ERROR] Failed to write the %s command registry value.\n", RevealProtocolName);
+        return false;
+    }
+    return true;
+}
+
+void UnregisterRevealProtocol()
+{
+    RegDeleteTreeW(HKEY_LOCAL_MACHINE, RevealProtocolKeyPath);
+}
+
 // Builds the Scheduled Task definition XML for the toast-notify task: triggered by Security-log
-// event IDs 4656 ("a handle to an object was requested") or 4663 ("an attempt was made to
-// access an object"), which the audit-log feature's SACL (auditlog.cpp) causes Windows to emit
-// for any \\.\interceptionNN open — including, in principle, opens of any *other* object that
+// event ID 4656 ("a handle to an object was requested"), which the audit-log feature's SACL
+// (auditlog.cpp) causes Windows to emit for any \\.\interceptionNN open — including, in
+// principle, opens of any *other* object that
 // happens to carry a Kernel-Object SACL elsewhere on the machine, since auditpol's "Kernel
 // Object" subcategory is a single machine-wide switch, not scoped to our devices specifically.
 // Rather than trying to encode an exact \Device\interceptionNN match in this trigger's XPath
@@ -284,7 +362,7 @@ std::wstring BuildToastTaskXml(const std::wstring& helperPath)
         L"      <Enabled>true</Enabled>\n"
         L"      <Subscription>&lt;QueryList&gt;&lt;Query Id=\"0\" Path=\"Security\"&gt;"
         L"&lt;Select Path=\"Security\"&gt;*[System[Provider[@Name='Microsoft-Windows-Security-Auditing'] "
-        L"and (EventID=4656 or EventID=4663)]]&lt;/Select&gt;"
+        L"and EventID=4656]]&lt;/Select&gt;"
         L"&lt;/Query&gt;&lt;/QueryList&gt;</Subscription>\n"
         L"      <ValueQueries>\n"
         L"        <Value name=\"objectName\">Event/EventData/Data[@Name='ObjectName']</Value>\n"
@@ -348,18 +426,26 @@ int RunEnableToast()
     }
     wprintf(L"Registered the OpenInputBridge AppUserModelId.\n");
 
+    if (!RegisterRevealProtocol(helperPath)) {
+        UnregisterAumid();
+        return 1;
+    }
+    wprintf(L"Registered the %s: protocol (click a toast to reveal the accessing process's binary).\n", RevealProtocolName);
+
     if (!CreateStartMenuShortcut(helperPath)) {
+        UnregisterRevealProtocol();
         UnregisterAumid();
         return 1;
     }
     wprintf(L"Created the Start Menu shortcut the AUMID needs to resolve reliably.\n");
 
-    if (!RegisterScheduledTaskFromXml(ToastTaskName, BuildToastTaskXml(helperPath.wstring()))) {
+    if (!RegisterScheduledTaskFromXml(ToastNotifyTaskName, BuildToastTaskXml(helperPath.wstring()))) {
         RemoveStartMenuShortcut();
+        UnregisterRevealProtocol();
         UnregisterAumid();
         return 1;
     }
-    wprintf(L"Registered the '%s' Scheduled Task.\n", ToastTaskName);
+    wprintf(L"Registered the '%s' Scheduled Task.\n", ToastNotifyTaskName);
 
     wprintf(
         L"\nNote: toast notifications require the audit-log feature (--enable-audit-log) to "
@@ -377,11 +463,16 @@ int RunDisableToast()
         return 1;
     }
 
-    UnregisterScheduledTask(ToastTaskName);
+    UnregisterScheduledTask(ToastNotifyTaskName);
     RemoveStartMenuShortcut();
+    UnregisterRevealProtocol();
     UnregisterAumid();
 
-    wprintf(L"Removed the toast notification task, Start Menu shortcut, and AppUserModelId registration.\n");
+    wprintf(
+        L"Removed the toast notification task, Start Menu shortcut, %s: protocol, and "
+        L"AppUserModelId registration.\n",
+        RevealProtocolName
+        );
     return 0;
 }
 

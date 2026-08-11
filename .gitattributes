@@ -1,0 +1,6 @@
+# Windows batch scripts must always be checked out with CRLF, regardless of whatever
+# core.autocrlf a given clone happens to have configured (or lacks entirely, e.g. on Linux/Mac).
+# A LF-only .bat file can silently corrupt cmd.exe's parsing of multi-line if/for (...) blocks —
+# see docs/DECISIONS.md's 2026-08-11 entry for a real repro of this exact bug in
+# packaging/setup.bat.
+*.bat text eol=crlf

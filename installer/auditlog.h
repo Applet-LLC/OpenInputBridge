@@ -3,7 +3,7 @@
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
 // Optional audit-logging feature: makes Windows record (via the standard Security event log,
-// event IDs 4656/4663) which process opens which \\.\interceptionNN control device and when.
+// event ID 4656) which process opens which \\.\interceptionNN control device and when.
 // This is entirely a user-mode/OS-configuration feature — driver/ is not touched at all.
 //
 // Mechanism (see docs/DECISIONS.md's 2026-08-08 and 2026-08-09 entries for the full rationale,
@@ -16,7 +16,7 @@
 //      Windows install. All three subcategories turned out to be needed for a genuine
 //      Interception-protocol client's plain CreateFileA(GENERIC_READ) open of a *control*
 //      device (as opposed to a regular NTFS file, where "File System" alone was enough in the
-//      same real-machine testing) to actually produce 4656/4663 — see docs/DECISIONS.md's
+//      same real-machine testing) to actually produce 4656 — see docs/DECISIONS.md's
 //      2026-08-10 entry for how each was isolated. A SACL alone is not enough if the relevant
 //      subcategories are off system-wide, and vice versa.
 //   2. The SACL lives on the device object, not on anything persisted to disk, so it is lost
@@ -32,6 +32,12 @@
 #pragma once
 
 namespace OpenInputBridge {
+
+// Name of the reapply-on-boot Scheduled Task (see mechanism note above). Exposed publicly
+// (rather than kept file-local in auditlog.cpp, as most of this feature's implementation
+// details are) so verify.cpp can check whether it's registered as a proxy for "is the
+// audit-log feature enabled" without needing to duplicate auditlog.cpp's own logic.
+inline constexpr wchar_t AuditLogReapplyTaskName[] = L"OpenInputBridgeAuditLogReapply";
 
 // Adds the audit SACL to all currently-present control devices, turns on the "Kernel Object",
 // "File System", and "Handle Manipulation" audit subcategories, and registers the

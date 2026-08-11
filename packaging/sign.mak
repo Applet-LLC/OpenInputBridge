@@ -86,6 +86,8 @@
 #   OibToastHelper.ico
 #   README.md
 #   LICENSE
+#   README.ja-JP.txt
+#   README.en-US.txt
 #   oib_kbd\oib_kbd.inf
 #   oib_kbd\oib_kbd.cat
 #   oib_kbd\oib_kbd.sys
@@ -147,6 +149,15 @@ TARGET_LICENSE	= ..\LICENSE
 # One-click install (drivers + --enable-audit-log + --enable-toast) — see setup.bat's own
 # header comment. Not a build output — copied straight from source, same as the toast icon.
 TARGET_SETUP_BAT	= setup.bat
+
+# Distribution-specific README (evaluation-build install/usage instructions, separate from
+# README.md's developer-facing repo documentation above) — not a build output, copied straight
+# from source. Kept as two fixed-language files rather than one auto-selected pair (contrast
+# the Pro/Subscription editions' MSI-driven README.en-US.txt/README.ja-JP.txt, where the
+# installer language picks one) since this CLI zip has no installer UI to make that choice for.
+TARGET_DIST_README_JA	= dist-readme\README.ja-JP.txt
+
+TARGET_DIST_README_EN	= dist-readme\README.en-US.txt
 
 SIGNED_DIR	= Signed
 
@@ -222,7 +233,9 @@ stage-bin:
 		copy /y $(TARGET_README) $(SIGNED_DIR)\.
 		copy /y $(TARGET_LICENSE) $(SIGNED_DIR)\.
 		copy /y $(TARGET_SETUP_BAT) $(SIGNED_DIR)\.
-		@echo [stage-bin] copied installer, toast helper, its icon, README, LICENSE, and setup.bat into $(SIGNED_DIR)
+		copy /y $(TARGET_DIST_README_JA) $(SIGNED_DIR)\.
+		copy /y $(TARGET_DIST_README_EN) $(SIGNED_DIR)\.
+		@echo [stage-bin] copied installer, toast helper, its icon, README, LICENSE, setup.bat, and the dist-readme files into $(SIGNED_DIR)
 
 stage-driver:
 		@if not exist $(SIGNED_DIR) mkdir $(SIGNED_DIR)
