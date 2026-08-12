@@ -13,16 +13,18 @@ namespace OpenInputBridge {
 // Two independent checks, both non-fatal to each other (both always run; the return value only
 // reflects the first one):
 //
-//   1. Driver filter integrity: for each driver type registered as an upper filter
-//      (common.h's IsRegisteredAsUpperFilter), confirms its service's ImagePath actually points
-//      at a file that exists on disk. A filter registered but missing on disk would make the
-//      corresponding device class (keyboard or mouse) stop responding *entirely* after the next
-//      reboot — Windows tries and fails to load a nonexistent filter driver ahead of
+//   1. Driver filter integrity: for each driver type, common.h's VerifyDriverFilterIntegrity
+//      confirms that if it's registered as an upper filter, its service's ImagePath actually
+//      points at a file that exists on disk. A filter registered but missing on disk would make
+//      the corresponding device class (keyboard or mouse) stop responding *entirely* after the
+//      next reboot — Windows tries and fails to load a nonexistent filter driver ahead of
 //      kbdclass/mouclass in the stack — so rather than leave that landmine in place, this
 //      removes the filter registration itself and reports the corrective action taken. This can
 //      only happen from an incomplete/interrupted install (DiInstallDriverW/
 //      SetupInstallServicesFromInfSectionW succeeded, but the driver package that was staged
 //      from is now gone somehow) — a normal install run start-to-finish never leaves this state.
+//      uninstall.cpp's RunUninstallOne runs the same check as its own final step, for the same
+//      reason.
 //
 //   2. Audit-log/toast-notification reminder: if either feature (auditlog.h/toastsetup.h) isn't
 //      enabled, prints an informational note. This driver, like the real Interception driver it

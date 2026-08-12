@@ -126,6 +126,19 @@ bool ModifyUpperFilters(const wchar_t* classGuidString, const wchar_t* entryName
 // itself here" cares about). False if the class key or the value itself doesn't exist.
 bool IsRegisteredAsUpperFilter(const wchar_t* classGuidString, const wchar_t* entryName);
 
+// Confirms that if driver is currently registered as an upper filter, its service's ImagePath
+// actually points at a file that exists on disk — and if not, removes the filter registration
+// itself (self-heals) rather than merely reporting the problem. A filter registered but missing
+// on disk makes the corresponding device class (keyboard or mouse) stop responding *entirely*
+// after the next reboot — Windows tries and fails to load a nonexistent filter driver ahead of
+// kbdclass/mouclass in the stack — so this is treated as a landmine to defuse immediately.
+// Shared by verify.cpp's RunVerifyInstall (checked after a fresh install) and uninstall.cpp's
+// RunUninstallOne (checked as uninstall's own final step, regardless of how the steps before it
+// went — the goal either way is the same: never leave this specific combination behind).
+// Returns false (having already self-healed) only when that dangerous state was actually found;
+// true otherwise (not registered at all, or registered with its file present).
+bool VerifyDriverFilterIntegrity(const DriverInfo& driver);
+
 // Writes KeyboardSlotCountValueName (REG_DWORD) under type's own service \Parameters key
 // (created if the Parameters subkey doesn't exist yet — the service key itself must already
 // exist, i.e. this is only called once DiInstallDriverW/SetupInstallServicesFromInfSectionW

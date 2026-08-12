@@ -15,6 +15,12 @@
 //      install.cpp/common.h), not by DiInstallDriverW itself, so DiUninstallDriverW has no
 //      record of it to reverse.
 //   4. Remove the driver package from the Driver Store via DiUninstallDriverW.
+//   5. Regardless of how steps 2-4 went, run common.h's VerifyDriverFilterIntegrity as a final
+//      safety net: it must never be possible to walk away from an uninstall attempt with the
+//      driver still registered as an upper filter but its file gone (self-heals if found —
+//      the same check --verify-install runs after a fresh install). Step 3 failing alone is
+//      harmless (an orphaned, unreferenced service registration doesn't load or do anything),
+//      so it's reported but doesn't block steps 4-5 from still running.
 // Like installation, this requires a reboot to take full effect.
 
 #include "common.h"
@@ -72,23 +78,34 @@ int RunUninstallOne(const DriverInfo& driver)
         wprintf(L"[WARNING] Could not confirm '%s' stopped; continuing anyway.\n", driver.ServiceName);
     }
 
+    bool ok = true;
+
     if (!ModifyUpperFilters(driver.ClassGuidString, driver.ServiceName, false, nullptr)) {
         wprintf(
             L"[ERROR] Failed to remove '%s' from its device class's upper filters.\n",
             driver.ServiceName
             );
-        return 1;
+        ok = false;
+    } else {
+        wprintf(L"Removed '%s' from its device class's upper filters.\n", driver.ServiceName);
     }
-    wprintf(L"Removed '%s' from its device class's upper filters.\n", driver.ServiceName);
 
+    // Not fatal to the overall uninstall: a service registration with no UpperFilters entry (and
+    // soon no Driver Store package) pointing at it is inert -- nothing loads or references it --
+    // so this is worth reporting but not worth aborting the rest of the uninstall over.
     if (!DeleteServiceRegistration(driver.ServiceName)) {
-        wprintf(L"[ERROR] Failed to delete the '%s' service registration: %lu\n", driver.ServiceName, GetLastError());
-        return 1;
+        wprintf(
+            L"[WARNING] Failed to delete the '%s' service registration: %lu (harmless -- an "
+            L"orphaned, unreferenced service registration doesn't load or do anything).\n",
+            driver.ServiceName, GetLastError()
+            );
+    } else {
+        wprintf(L"Deleted the %s service registration.\n", driver.ServiceName);
     }
-    wprintf(L"Deleted the %s service registration.\n", driver.ServiceName);
 
     std::filesystem::path infPath =
         GetModuleDirectory() / driver.PackageName / (std::wstring(driver.PackageName) + L".inf");
+    BOOL needReboot = FALSE;
 
     if (!std::filesystem::exists(infPath)) {
         wprintf(
@@ -97,25 +114,33 @@ int RunUninstallOne(const DriverInfo& driver)
             L"copy, if any, will need to be cleaned up separately, e.g. via pnputil).\n",
             infPath.c_str()
             );
-        return 0;
-    }
-
-    BOOL needReboot = FALSE;
-
-    if (!DiUninstallDriverW(nullptr, infPath.c_str(), 0, &needReboot)) {
+    } else if (!DiUninstallDriverW(nullptr, infPath.c_str(), 0, &needReboot)) {
         wprintf(L"[ERROR] DiUninstallDriver failed: %lu\n", GetLastError());
-        return 1;
+        ok = false;
+    } else {
+        wprintf(L"Removed the %s driver package from the Driver Store.\n", driver.ServiceName);
     }
-    wprintf(L"Removed the %s driver package from the Driver Store.\n", driver.ServiceName);
 
-    wprintf(
-        L"\nUninstallation of %s complete. A REBOOT is required to fully unload it and rebuild "
-        L"the device filter chains without it.%s\n",
-        driver.ServiceName,
-        needReboot ? L" (DiUninstallDriver also reported a reboot is needed.)" : L""
-        );
+    // Final step, run unconditionally regardless of how the steps above went: the one state that
+    // must never be left behind is "still registered as an upper filter, but the driver file it
+    // points at is gone" -- that makes the corresponding device class stop responding entirely
+    // after the next reboot. Self-heals (removes the stale filter registration) if found -- the
+    // same check --verify-install runs after a fresh install (common.h's
+    // VerifyDriverFilterIntegrity).
+    if (!VerifyDriverFilterIntegrity(driver)) {
+        ok = false;
+    }
 
-    return 0;
+    if (ok) {
+        wprintf(
+            L"\nUninstallation of %s complete. A REBOOT is required to fully unload it and "
+            L"rebuild the device filter chains without it.%s\n",
+            driver.ServiceName,
+            needReboot ? L" (DiUninstallDriver also reported a reboot is needed.)" : L""
+            );
+    }
+
+    return ok ? 0 : 1;
 }
 
 } // namespace
