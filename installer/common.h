@@ -99,6 +99,33 @@ bool IsRunningElevated();
 // installers' own use, in case their own MSI's CustomAction sequence needs to bypass this).
 bool IsSupportedWindowsEnvironment();
 
+// Classifies a driver catalog (.cat) file's Authenticode signature into what it takes to
+// actually load on this machine:
+//   Unsigned: no signature at all. Can never load under any configuration -- even test-signing
+//             mode requires at least a test certificate's signature over the file.
+//   NonWhql:  signed, but not WHQL/HLK cross-signed (a plain EV certificate, or a local test
+//             certificate). Needs IsTestSigningEnabled() below to actually load.
+//   Whql:     WHQL/HLK cross-signed (the embedded signature chains through a certificate whose
+//             subject contains "Windows Hardware Compatibility Publisher" — Microsoft's
+//             standard cross-signing CA for driver catalogs). Loads on any standard Windows
+//             regardless of test-signing mode.
+// Determined entirely offline (no AIA/network chain-building): CryptQueryObject's embedded
+// certificate store already contains every certificate the catalog's own signature carries,
+// which for a cross-signed catalog includes the WHQL CA certificate directly.
+enum class DriverSignatureLevel {
+    Unsigned,
+    NonWhql,
+    Whql,
+};
+DriverSignatureLevel GetDriverSignatureLevel(const std::wstring& catalogPath);
+
+// True if the running system currently has test-signing mode enabled (the effect of
+// `bcdedit /set TESTSIGNING ON`, after a reboot) — checked via NtQuerySystemInformation's
+// SystemCodeIntegrityInformation class (resolved dynamically via GetProcAddress; this
+// information class isn't in the public winternl.h) rather than shelling out to bcdedit and
+// parsing its own, locale-dependent text output.
+bool IsTestSigningEnabled();
+
 // True if a service named serviceName is currently registered with the SCM (regardless of
 // its running state).
 bool ServiceExists(const wchar_t* serviceName);

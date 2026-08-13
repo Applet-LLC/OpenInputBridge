@@ -10,6 +10,14 @@
 // package — see common.h for why), then registers the driver as an upper filter positioned
 // immediately before its class driver (kbdclass/mouclass). See driver/keyboard/oib_kbd.inx,
 // driver/mouse/oib_mou.inx, and docs/PROTOCOL.md.
+//
+// Before any of that: common.h's GetDriverSignatureLevel/IsTestSigningEnabled gate the install
+// on whether this driver package can actually load once installed. A self-built/EV-only
+// (pre-WHQL) package needs test-signing mode enabled to load at all; a WHQL-signed one doesn't.
+// This is judged from the .cat file's own signature, not which edition (OSS/Pro/Subscription)
+// is running, so a WHQL-signed release always installs cleanly regardless of test-signing mode,
+// and a pre-WHQL one is stopped here — before rebooting into a driver that silently can't load
+// — rather than left for the user to discover only after the required reboot.
 
 #include "common.h"
 
@@ -151,6 +159,34 @@ int RunInstallOne(const DriverInfo& driver, DriverType type, std::optional<ULONG
 
     if (!std::filesystem::exists(infPath)) {
         wprintf(L"[ERROR] Driver package not found: %s\n", infPath.c_str());
+        return 1;
+    }
+
+    // A driver package that can't actually load once installed is worse than useless -- it's a
+    // silent trap that only surfaces after the required reboot. Checked here, before
+    // DiInstallDriverW does anything, rather than left to the user to discover after rebooting.
+    std::filesystem::path catPath =
+        GetModuleDirectory() / driver.PackageName / (std::wstring(driver.PackageName) + L".cat");
+    DriverSignatureLevel signatureLevel = GetDriverSignatureLevel(catPath.wstring());
+
+    if (signatureLevel == DriverSignatureLevel::Unsigned) {
+        wprintf(
+            L"[ERROR] %s.cat is not digitally signed at all. A completely unsigned driver can "
+            L"never load, under any configuration -- even test-signing mode requires at least a "
+            L"test certificate's signature over the file. Build with EV/test signing (see "
+            L"README.md) before installing.\n",
+            driver.PackageName
+            );
+        return 1;
+    }
+    if (signatureLevel == DriverSignatureLevel::NonWhql && !IsTestSigningEnabled()) {
+        wprintf(
+            L"[ERROR] %s.cat is signed, but not WHQL-certified, and test-signing mode is not "
+            L"enabled -- this driver cannot load as-is. Run 'bcdedit /set TESTSIGNING ON' as "
+            L"Administrator and reboot before installing (not needed for a WHQL-signed "
+            L"release).\n",
+            driver.PackageName
+            );
         return 1;
     }
 

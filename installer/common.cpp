@@ -6,6 +6,8 @@
 
 #include "common.h"
 
+#include <wincrypt.h>
+
 #include <string>
 #include <vector>
 #include <cstdlib>
@@ -13,6 +15,8 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+
+#pragma comment(lib, "Crypt32.lib")
 
 namespace OpenInputBridge {
 
@@ -85,6 +89,86 @@ bool IsSupportedWindowsEnvironment()
 
     constexpr unsigned long kMinimumSupportedBuildNumber = 18362; // Windows 10 1903.
     return wcstoul(buildNumberText, nullptr, 10) >= kMinimumSupportedBuildNumber;
+}
+
+DriverSignatureLevel GetDriverSignatureLevel(const std::wstring& catalogPath)
+{
+    DWORD encoding = 0;
+    DWORD contentType = 0;
+    DWORD formatType = 0;
+    HCERTSTORE store = nullptr;
+    HCRYPTMSG msg = nullptr;
+
+    BOOL queried = CryptQueryObject(
+        CERT_QUERY_OBJECT_FILE, catalogPath.c_str(),
+        CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, CERT_QUERY_FORMAT_FLAG_BINARY, 0,
+        &encoding, &contentType, &formatType, &store, &msg, nullptr
+        );
+
+    if (!queried || store == nullptr) {
+        if (store != nullptr) {
+            CertCloseStore(store, 0);
+        }
+        if (msg != nullptr) {
+            CryptMsgClose(msg);
+        }
+        return DriverSignatureLevel::Unsigned;
+    }
+
+    // A WHQL/HLK cross-signed catalog's own signature embeds a certificate whose subject
+    // contains this well-known name -- checking the certificates CryptQueryObject already
+    // pulled out of the signature (no chain-building, no network/AIA lookups) is sufficient to
+    // tell it apart from a plain EV or local test certificate.
+    const wchar_t whqlSubjectSubstring[] = L"Windows Hardware Compatibility Publisher";
+    bool foundWhql = false;
+
+    PCCERT_CONTEXT cert = nullptr;
+    while ((cert = CertEnumCertificatesInStore(store, cert)) != nullptr) {
+        wchar_t subjectName[512]{};
+        CertGetNameStringW(
+            cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, nullptr,
+            subjectName, static_cast<DWORD>(std::size(subjectName))
+            );
+        if (wcsstr(subjectName, whqlSubjectSubstring) != nullptr) {
+            foundWhql = true;
+            CertFreeCertificateContext(cert); // breaking out early -- not auto-freed by the next enum call.
+            break;
+        }
+    }
+
+    CertCloseStore(store, 0);
+    CryptMsgClose(msg);
+
+    return foundWhql ? DriverSignatureLevel::Whql : DriverSignatureLevel::NonWhql;
+}
+
+bool IsTestSigningEnabled()
+{
+    struct SystemCodeIntegrityInformationT {
+        ULONG Length;
+        ULONG CodeIntegrityOptions;
+    };
+    constexpr ULONG kSystemCodeIntegrityInformationClass = 103;
+    constexpr ULONG kCodeIntegrityOptionTestSign = 0x00000002;
+
+    using NtQuerySystemInformationProc = LONG(WINAPI*)(ULONG, PVOID, ULONG, PULONG);
+
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (ntdll == nullptr) {
+        return false;
+    }
+
+    auto queryProc = reinterpret_cast<NtQuerySystemInformationProc>(
+        GetProcAddress(ntdll, "NtQuerySystemInformation"));
+    if (queryProc == nullptr) {
+        return false;
+    }
+
+    SystemCodeIntegrityInformationT info{ sizeof(info), 0 };
+    ULONG returnLength = 0;
+    LONG status = queryProc(kSystemCodeIntegrityInformationClass, &info, sizeof(info), &returnLength);
+
+    return status >= 0 && (info.CodeIntegrityOptions & kCodeIntegrityOptionTestSign) != 0;
 }
 
 bool ServiceExists(const wchar_t* serviceName)
