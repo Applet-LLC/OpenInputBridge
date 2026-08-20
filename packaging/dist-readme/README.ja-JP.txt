@@ -1,5 +1,5 @@
-﻿OpenInputBridge インストールガイド　1.00
-=================================================
+﻿OpenInputBridge インストールガイド　1.00 2026-08-20 Applet LLC
+==============================================================
 
 このパッケージは、Interception プロトコル互換のWindows用キーボード/マウス
 入力インターセプトドライバ「OpenInputBridge」をインストールします。
@@ -65,6 +65,7 @@ Interception互換のデバイスをどのプロセスが開いたかをWindows�
 
 ホワイトリストから削除する場合
     OpenInputBridgeSetup.exe --disallow-process "C:\full\path\to\app.exe"
+
 現在のホワイトリスト一覧表示
     OpenInputBridgeSetup.exe --list-allowed-processes
 

@@ -1,5 +1,5 @@
-OpenInputBridge Installation Guide  1.00
-=================================================
+OpenInputBridge Installation Guide  1.00 2026-08-20 Applet LLC
+==============================================================
 
 This package installs "OpenInputBridge", a Windows kernel driver that
 intercepts and re-injects keyboard/mouse input, compatible with the
