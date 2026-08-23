@@ -200,6 +200,78 @@ typedef struct _MOUSE_INPUT_DATA
   実装は、「失敗した」場合だけでなく「応答が返ってこない・想定外の反応をした」場合も安全側に
   倒して「OpenInputBridgeとは確認できなかった」として扱うべきである。
 
+## 外部プロジェクト（OpenInputBridge-MCP）の実機テストで得られた知見（要検証）
+
+このセクションは、本プロトコルのクライアント実装である
+[OpenInputBridge-MCP](https://github.com/Applet-LLC/OpenInputBridge-MCP)（MCPサーバー、TypeScript製の本体
++ 自作Cヘルパー `oib_bridge.exe`）の開発・実機テストで得られた観察をまとめたものである。**本ドライバ
+（`driver/`）のソースコードを参照して確認したものではない**（クリーンルーム方針・別リポジトリでの
+作業のため）。あくまで「クライアント側から見てこう見えた」という外部観察であり、以下のいずれについても、
+本ドライバの実装（`driver/common/ioctl.c`等）を参照して裏付けを取る、あるいは実機で追検証することを
+推奨する。詳細な再現手順・生ログは
+[OpenInputBridge-MCPのtest/REALWORLD_TESTING.md](https://github.com/Applet-LLC/OpenInputBridge-MCP/blob/master/test/REALWORLD_TESTING.md)
+を参照。
+
+### 1. `OIB_DRIVER_IDENTITY`のアラインメント前提が本ドキュメントに明記されていない
+
+クライアント側（`oib_bridge.c`）で、本ドキュメント上記の構造体定義を素直にCで書き起こす際、他の構造体
+（`KEYBOARD_INPUT_DATA`/`MOUSE_INPUT_DATA`）に合わせて`#pragma pack(push, 1)`で囲ったところ、
+`OIB_DRIVER_IDENTITY`（`ULONG`×3 + `BOOLEAN`）だけはパッキング指定の有無でサイズが変わる
+（自然アラインメントでは末尾の`BOOLEAN`がパディングされ16バイト、`pack(1)`だと13バイト）。
+`WdfRequestRetrieveOutputBuffer`はおそらくカーネル側の`sizeof()`（=自然アラインメントの16バイト）を
+要求サイズとして検証するため、13バイトしか用意しないクライアントは`IOCTL_GET_DRIVER_IDENTITY`が
+`STATUS_BUFFER_TOO_SMALL`相当で常に失敗する、という実クライアントバグを引いた（`KEYBOARD_INPUT_DATA`/
+`MOUSE_INPUT_DATA`はフィールド配置上たまたまパック有無で結果が変わらず、影響を受けなかった）。
+
+**提案**: 本ドキュメントの構造体定義に、「これらは全て呼び出し側コンパイラの自然（デフォルト）
+アラインメントを前提とし、パッキング指定をしてはならない」旨を明記すると、同種のクライアント実装ミスを
+将来的に防げる。
+
+### 2. キーボードイベントを間隔なく連続送信すると、OS側で取りこぼされることがある
+
+`IOCTL_WRITE`の呼び出し自体（`DeviceIoControl`の戻り値）は毎回同期的に成功しているにもかかわらず、
+複数のキーイベント（特にShift等の修飾キーのdown/up）を間隔を空けずに連続送信すると、送信先アプリ側で
+一部の文字・Shift状態が反映されない現象を実機で確認した。特に**同一スキャンコード（例: 同じ物理Shiftキー）
+を短時間にdown/up/down/upと繰り返すと再現しやすく**、`ShiftLeft`/`ShiftRight`を交互に使うことで
+軽減できた。
+
+これは`IOCTL_WRITE`が`OibCtlHandleWrite`内で`ClassService`を同期呼び出しした時点で「ドライバとしては
+完了」となる一方、そこから先（kbdclass→raw inputスレッド→`TranslateMessage`/`ToUnicode`の修飾キー状態
+参照→`WM_CHAR`配送）はOS側で非同期に処理されるための時間差だと推測している。**本ドライバ自身のコードに
+起因する問題ではなく、Windowsの標準的な入力パイプラインの特性である可能性が高いと考えているが、
+本ドライバのIOCTL_WRITE実装（キューイング・IRQL制御等）が何らかの形で関与していないか確認いただけると
+確実性が増す。**
+
+**提案**: 本ドキュメントの`IOCTL_WRITE`節に、「クライアントは連続するイベント間に最小限の間隔を空ける
+ことを推奨する。特に同一スキャンコードの高速なdown/up繰り返しは避ける」旨の実装上の注意を追記する。
+
+### 3. `MOUSE_MOVE_ABSOLUTE`の座標系と「初回書き込みが反映されないことがある」現象
+
+マルチモニタ環境（プライマリ3440×1440@150%、セカンダリ1920×1080@100%）で`MOUSE_INPUT_DATA.LastX`/
+`LastY`に`Flags=MOUSE_MOVE_ABSOLUTE`を付けて様々な値を送信し、実際のカーソル位置（
+`SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)`で物理ピクセル座標を正確に読み取った）と比較した。
+
+- 0-65535の正規化値は、**プライマリモニタの物理ピクセル範囲**に線形マッピングされる
+  （`物理X = round(正規化X / 65536 * プライマリモニタ幅)`、Yも同様）。これは標準Win32 `SendInput`の
+  `MOUSEEVENTF_ABSOLUTE`（`MOUSEEVENTF_VIRTUALDESK`未指定時）と同じ規約であり、**セカンダリモニタなど
+  プライマリモニタの外側の座標は表現できない**
+- **同一の絶対座標値を送っても、直前に絶対モード以外の操作（相対移動・他プロセスによるカーソル設定等）
+  があった場合、1回目の書き込みではカーソルが移動しない（またはコールドスタート的に不定になる）ことが
+  あり、直後に同じ値をもう一度書き込むと確実に反映される**、という実物理の絶対入力デバイス
+  （タッチパネル・タブレット等によくある「最初のサンプルはキャリブレーション用」という挙動）に類似した
+  現象を確認した
+
+上記いずれも、本ドライバが`IOCTL_WRITE`でチェーンの末尾から`ClassService`へレコードを転送するだけで
+`MOUSE_INPUT_DATA`の中身自体は加工していない（と本ドキュメントの記述からは理解している）前提に立つと、
+**本ドライバ自身の挙動ではなく、Windows標準のマウスクラスドライバ（mouclass）側が実機物理デバイスの
+キャリブレーション前提で`MOUSE_MOVE_ABSOLUTE`を処理していることに起因する可能性が高いと考えている**。
+ただし未確認であり、本ドライバの`IOCTL_WRITE`経路（`driver/common/ioctl.c`の`OibCtlHandleWrite`）が
+本当に無加工で転送しているかどうかを実装側で確認いただけると、原因の切り分けがより確実になる。
+
+**提案**: 本ドキュメントの`MOUSE_INPUT_DATA.Flags`（`MOUSE_MOVE_ABSOLUTE`）の説明に、座標系が
+`SendInput`の`MOUSEEVENTF_ABSOLUTE`と同じ規約であること、および上記「初回書き込みが反映されないことが
+ある」既知の癖について、クライアント実装者向けの注記を追加する。
+
 ## 参照実装ファイル（取り込み済み、無改変）
 
 - `third_party/interception/library/interception.c`
