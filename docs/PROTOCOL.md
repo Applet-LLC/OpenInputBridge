@@ -116,6 +116,25 @@ typedef struct _MOUSE_INPUT_DATA
 } MOUSE_INPUT_DATA, *PMOUSE_INPUT_DATA;
 ```
 
+### `MOUSE_INPUT_DATA.Flags`（`MOUSE_MOVE_ABSOLUTE`）の座標系
+
+`Flags`に`MOUSE_MOVE_ABSOLUTE`（絶対座標モード）を立てて`LastX`/`LastY`を送受信する場合、0〜65535の
+正規化値は**プライマリモニタの物理ピクセル範囲**に線形マッピングされる
+（`物理X = round(正規化X / 65536 * プライマリモニタ幅)`、Yも同様）。これは標準Win32 `SendInput`の
+`MOUSEEVENTF_ABSOLUTE`（`MOUSEEVENTF_VIRTUALDESK`未指定時）と同じ規約であり、**セカンダリモニタなど
+プライマリモニタの外側の座標は表現できない**。
+
+本ドライバは`MOUSE_INPUT_DATA`（`Flags`/`LastX`/`LastY`含む）を一切加工せず、実機経由・`IOCTL_WRITE`
+経由のいずれの経路でもWindows標準のマウスクラスドライバ（mouclass）へそのまま転送するだけである
+（`driver/mouse/mousefilter.c`の`OibMouFilterServiceCallback`、`driver/common/ioctl.c`の
+`OibCtlHandleWrite`参照）。したがって上記の座標変換規約自体は本ドライバの実装ではなく、mouclass以降の
+OS側の挙動である。
+
+（[OpenInputBridge-MCP](https://github.com/Applet-LLC/OpenInputBridge-MCP)の実機テストで確認。詳細は
+下記「外部プロジェクト（OpenInputBridge-MCP）の実機テストで得られた知見」§3を参照。同テストでは
+「同一座標値を連続で書き込んだ際、直前の状態によっては1回目が反映されないことがある」という追加の
+現象も観察されているが、原因未確認のため本節には含めていない。）
+
 ## 各IOCTLの意味論
 
 - **`IOCTL_SET_EVENT`**: 入力バッファは `HANDLE[2]`（1要素目のみ使用、2要素目は常に0）。ドライバは
@@ -165,6 +184,13 @@ typedef struct _MOUSE_INPUT_DATA
   IRQLを揃えるための対応で、`kbdclass`/win32kのRaw Input Managerが「呼び出しは必ず
   DISPATCH_LEVEL」という暗黙の前提を置いている可能性を考慮している（[docs/DECISIONS.md](DECISIONS.md)
   の2026-07-30付エントリ参照）。
+  **実装上の注意（外部プロジェクトの実機テストで確認、詳細は下記「外部プロジェクトの実機テストで
+  得られた知見」§2参照）**: `IOCTL_WRITE`の呼び出し自体は毎回同期的に成功するが、複数のストローク
+  （特にキーボードの修飾キーのdown/up）を間隔を空けずに連続送信すると、送信先アプリ側で一部のイベント
+  が反映されないことが実機で確認されている。特に同一スキャンコードの高速なdown/up繰り返しで再現しやすい。
+  クライアントは連続するイベント間に最小限の間隔を空けること、同一スキャンコードの高速なdown/up繰り返し
+  を避けることを推奨する。この現象の原因（本ドライバより下流のOS側入力パイプラインの特性である可能性が
+  高いと考えられるが未確認）については上記外部知見の項を参照。
 - **`IOCTL_GET_HARDWARE_ID`**: 出力バッファに、下位デバイス(PDO)のハードウェアIDプロパティ文字列
   （`IoGetDeviceProperty(DevicePropertyHardwareID, ...)`）を呼び出し元バッファサイズに収まる範囲で返す。
   **注意: この文字列はメーカー/型番レベルの識別情報であり、個体固有のIDではない**。全く同じ製品
@@ -188,6 +214,14 @@ typedef struct _MOUSE_INPUT_DATA
       BOOLEAN IsKeyboard;     // このハンドルがoib_kbd.sys/oib_mou.sysのどちらの応答か
   } OIB_DRIVER_IDENTITY, *POIB_DRIVER_IDENTITY;
   ```
+  **アラインメントに関する注記**: この構造体を含め、本プロトコル上でやり取りされる構造体はすべて、
+  呼び出し側コンパイラの自然（デフォルト）アラインメントを前提とする。パッキング指定（`#pragma pack`等）を
+  してはならない。`OIB_DRIVER_IDENTITY`は`ULONG`×3の後に`BOOLEAN`が続く配置のため、自然アラインメントと
+  `pack(1)`とでサイズが異なる（自然アラインメントでは末尾に3バイトのパディングが入り16バイト、`pack(1)`
+  だと13バイト）唯一の構造体であり、ドライバ側は`sizeof(OIB_DRIVER_IDENTITY)`（=自然アラインメントの
+  16バイト）を`WdfRequestRetrieveOutputBuffer`の要求サイズとして使っている（`driver/common/ioctl.c`の
+  `OibCtlHandleGetDriverIdentity`参照）。`KEYBOARD_INPUT_DATA`/`MOUSE_INPUT_DATA`はフィールド配置上
+  たまたまパック有無でサイズが変わらないため影響を受けない。
   新規クライアントが「本物のInterceptionドライバと通信しているのか、OpenInputBridgeと通信して
   いるのか」を区別するための手段。本物のInterceptionドライバはこのIOCTLコード自体を実装して
   いないため、送っても認識されず失敗する（`STATUS_INVALID_DEVICE_REQUEST`等）想定。
@@ -212,7 +246,7 @@ typedef struct _MOUSE_INPUT_DATA
 [OpenInputBridge-MCPのtest/REALWORLD_TESTING.md](https://github.com/Applet-LLC/OpenInputBridge-MCP/blob/master/test/REALWORLD_TESTING.md)
 を参照。
 
-### 1. `OIB_DRIVER_IDENTITY`のアラインメント前提が本ドキュメントに明記されていない
+### 1. `OIB_DRIVER_IDENTITY`のアラインメント前提が本ドキュメントに明記されていない（**確認済み・対応済み**）
 
 クライアント側（`oib_bridge.c`）で、本ドキュメント上記の構造体定義を素直にCで書き起こす際、他の構造体
 （`KEYBOARD_INPUT_DATA`/`MOUSE_INPUT_DATA`）に合わせて`#pragma pack(push, 1)`で囲ったところ、
@@ -223,9 +257,13 @@ typedef struct _MOUSE_INPUT_DATA
 `STATUS_BUFFER_TOO_SMALL`相当で常に失敗する、という実クライアントバグを引いた（`KEYBOARD_INPUT_DATA`/
 `MOUSE_INPUT_DATA`はフィールド配置上たまたまパック有無で結果が変わらず、影響を受けなかった）。
 
-**提案**: 本ドキュメントの構造体定義に、「これらは全て呼び出し側コンパイラの自然（デフォルト）
-アラインメントを前提とし、パッキング指定をしてはならない」旨を明記すると、同種のクライアント実装ミスを
-将来的に防げる。
+**本ドライバのソース（`driver/common/ioctl.h`/`ioctl.c`）を参照して確認**: `OIB_DRIVER_IDENTITY`は
+`#pragma pack`指定なしで定義されており、`OibCtlHandleGetDriverIdentity`は`sizeof(OIB_DRIVER_IDENTITY)`
+（自然アラインメントの16バイト）を`WdfRequestRetrieveOutputBuffer`の要求サイズとして使っている。
+このクライアント観察の推測は正確だった。
+
+**提案 → 採用・反映済み**: 上記「データ構造」節の構造体定義に、アラインメント前提（パッキング禁止）の
+注記を追加済み。
 
 ### 2. キーボードイベントを間隔なく連続送信すると、OS側で取りこぼされることがある
 
@@ -242,10 +280,21 @@ typedef struct _MOUSE_INPUT_DATA
 本ドライバのIOCTL_WRITE実装（キューイング・IRQL制御等）が何らかの形で関与していないか確認いただけると
 確実性が増す。**
 
-**提案**: 本ドキュメントの`IOCTL_WRITE`節に、「クライアントは連続するイベント間に最小限の間隔を空ける
-ことを推奨する。特に同一スキャンコードの高速なdown/up繰り返しは避ける」旨の実装上の注意を追記する。
+**本ドライバのソース（`driver/common/ioctl.c`の`OibCtlHandleWrite`）を参照して確認**: レコードごとに
+チェーン走査→（該当インスタンスへの)キューpush、またはチェーン末尾での`ClassService`直接同期呼び出しの
+いずれかを行うだけで、レコード間のディレイ・バッチング・追加のキューイングは一切行っていない
+（`for`ループの各反復は他のレコードの完了を待たず即座に進む）。したがって、ドライバ自身が意図的に
+イベント間隔を作っている・詰まらせているという証跡はコード上見当たらず、「kbdclass以降のOS側パイプライン
+が原因」という推測と矛盾しない。ただし、これはドライバ側にボトルネックが**ない**ことの状況証拠であって、
+kbdclass以降の非同期処理が実際の原因であることの証明ではない（このドキュメント・リポジトリの範囲外）。
+引き続き「要検証」のまま扱う。
 
-### 3. `MOUSE_MOVE_ABSOLUTE`の座標系と「初回書き込みが反映されないことがある」現象
+**提案 → 採用・反映済み（一部）**: 上記`IOCTL_WRITE`節に、連続イベント間に間隔を空けることを推奨する
+実装上の注意を追記した。ただし、この現象の原因を「OS側の入力パイプラインの特性によるもの」と断定する
+記述は未確認のため反映していない（本文には「原因不明（本ドライバより下流の可能性が高いと考えられるが
+未確認）」という留保付きでのみ記載）。
+
+### 3. `MOUSE_MOVE_ABSOLUTE`の座標系と「初回書き込みが反映されないことがある」現象（**前提を確認済み**）
 
 マルチモニタ環境（プライマリ3440×1440@150%、セカンダリ1920×1080@100%）で`MOUSE_INPUT_DATA.LastX`/
 `LastY`に`Flags=MOUSE_MOVE_ABSOLUTE`を付けて様々な値を送信し、実際のカーソル位置（
@@ -265,12 +314,20 @@ typedef struct _MOUSE_INPUT_DATA
 `MOUSE_INPUT_DATA`の中身自体は加工していない（と本ドキュメントの記述からは理解している）前提に立つと、
 **本ドライバ自身の挙動ではなく、Windows標準のマウスクラスドライバ（mouclass）側が実機物理デバイスの
 キャリブレーション前提で`MOUSE_MOVE_ABSOLUTE`を処理していることに起因する可能性が高いと考えている**。
-ただし未確認であり、本ドライバの`IOCTL_WRITE`経路（`driver/common/ioctl.c`の`OibCtlHandleWrite`）が
-本当に無加工で転送しているかどうかを実装側で確認いただけると、原因の切り分けがより確実になる。
 
-**提案**: 本ドキュメントの`MOUSE_INPUT_DATA.Flags`（`MOUSE_MOVE_ABSOLUTE`）の説明に、座標系が
-`SendInput`の`MOUSEEVENTF_ABSOLUTE`と同じ規約であること、および上記「初回書き込みが反映されないことが
-ある」既知の癖について、クライアント実装者向けの注記を追加する。
+**本ドライバのソース（`driver/mouse/mousefilter.c`の`OibMouFilterServiceCallback`、`driver/common/ioctl.c`の
+`OibCtlHandleWrite`）を参照して確認**: 前提どおり、`IOCTL_WRITE`経路・実機経由経路のいずれも
+`MOUSE_INPUT_DATA`（`LastX`/`LastY`/`Flags`含む）を一切書き換えず、受け取ったポインタをそのまま
+`ClassService`に渡しているだけである。座標変換・キャリブレーション処理に相当するコードは本ドライバ内に
+存在しない。したがって、観察された座標系（プライマリモニタへの線形マッピング）・「初回書き込みが
+反映されないことがある」現象は、いずれも本ドライバより下流（mouclass以降）の挙動に起因するという
+推測の前提は正しい。ただし実際の原因がmouclassであることそのものはこのリポジトリの範囲外であり未確認。
+
+**提案 → 一部採用・反映済み**: 座標系規約（`SendInput`の`MOUSEEVENTF_ABSOLUTE`と同じ）については、
+上記「データ構造」節に`MOUSE_INPUT_DATA.Flags`（`MOUSE_MOVE_ABSOLUTE`）の個別説明として追加済み。
+一方、「初回書き込みが反映されないことがある」現象については、原因未確認（実物理デバイスの
+キャリブレーション挙動との類推であり、mouclass側の実際の挙動として裏付けが取れていない）のため、
+本文（データ構造節）には反映していない。
 
 ## 参照実装ファイル（取り込み済み、無改変）
 
