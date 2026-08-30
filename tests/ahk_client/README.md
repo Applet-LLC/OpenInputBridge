@@ -44,14 +44,28 @@ Interceptionドライバは、どちらも同じ「kbfiltr型（`IOCTL_INTERNAL_
 
 1. 前提: OpenInputBridgeがインストール・再起動済みで、`sc query OpenInputBridgeKeyboard` /
    `OpenInputBridgeMouse` の両方がSTATE=RUNNINGであることを確認しておく。
-2. AutoHotkey v2をインストールする（[autohotkey.com](https://www.autohotkey.com/)）。
+2. AutoHotkey v2（64bit版。実機確認時はv2.0.27）をインストールする
+   （[autohotkey.com](https://www.autohotkey.com/)）。
 3. [AutoHotInterceptionのReleasesページ](https://github.com/evilC/AutoHotInterception/releases)
-   から最新のリリースzipをダウンロードし、`Lib/`フォルダ（`AutoHotInterception.ahk`・
-   `AutoHotInterception.dll`・`x86/interception.dll`・`x64/interception.dll`等一式）だけを
-   このディレクトリ（`tests/ahk_client/`）直下の`Lib/`にコピーする。`install-interception.exe`は
-   このzipには含まれていないはずだが、万一同梱されていても実行しないこと。
-4. ダウンロードしたDLLがWindowsにブロックされている場合は、プロパティから「ブロックの解除」を
-   行うか、`Lib/`フォルダに対して`Unblock-File`を実行する。
+   から最新のリリースzipをダウンロードし、`Lib/`フォルダの中身を、このディレクトリ
+   （`tests/ahk_client/`）直下に`Lib/`として配置する。実機確認時に実際に必要だった構成は
+   以下の通り（`x86/interception.dll`は32bit版AutoHotkeyを使う場合のみ必要。64bit版なら不要）。
+
+   ```
+   tests/ahk_client/Lib/
+   ├─ AutoHotInterception.ahk
+   ├─ AutoHotInterception.dll
+   ├─ CLR.ahk           (.NETアセンブリのロードに必須。抜けるとスクリプトが起動しない)
+   ├─ Unblocker.ps1
+   └─ x64/
+      └─ interception.dll
+   ```
+
+   `install-interception.exe`はこのzipには含まれていないはずだが、万一同梱されていても
+   実行しないこと。
+4. `Lib/`フォルダに対して`Lib\Unblocker.ps1`を**管理者権限のPowerShell**から実行し、
+   ダウンロードしたDLLのブロックを解除する（未実施だと`Lib\CLR.ahk`の`LoadFrom`が
+   `TargetInvocationException`(0x80131604)で失敗する。実機確認時に実際に遭遇した事象）。
 5. `identify_kbd.ahk`を実行し、キーボードを1台だけ操作してイベントが表示されることを確認してから、
    本番の2台構成に進む（`Lib/`の配置ミスがあればここで気付ける）。
 
