@@ -1,0 +1,3 @@
+# AutoHotInterception is a third-party binary release, not vendored source -- see README.md.
+Lib/
+*.log
