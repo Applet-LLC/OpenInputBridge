@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Builds hotplug_monitor.cpp (self-authored — see its own header comment) into
+hotplug_monitor.exe, the slot-reassignment observer used by this directory's README. Structured
+identically to tests/upstream_lib/Identify3Sample.vcxproj: talks the wire protocol directly
+(CreateFileA + DeviceIoControl against \\.\<base>NN), so it does NOT reference
+InterceptionLib.vcxproj or link interception.lib, and does not need
+third_party/interception/samples/utils.c/.h either (this tool is a passive poller, not a
+latency-sensitive stroke echo, so raise_process_priority() isn't relevant here).
+
+Own OutDir/IntDir under this project's own folder. Dev/test tooling only — included in
+OpenInputBridge.sln's Debug/Release configurations, not ReleaseWHQL, never touched by
+packaging/sign.mak.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{6A3E8D2F-1C5B-4E9A-8D3F-2B6C9A4E7D18}</ProjectGuid>
+    <RootNamespace>HotplugMonitor</RootNamespace>
+    <!-- See InterceptionLib.vcxproj's identical note: EWDK's vsdevcmd.bat -winsdk=none means a
+         plain (non-driver) project needs IncludePath/LibraryPath spelled out explicitly. -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <TargetName>hotplug_monitor</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="hotplug_monitor.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

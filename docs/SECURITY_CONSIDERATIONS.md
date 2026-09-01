@@ -95,7 +95,10 @@ static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRG
 以下はまだ検討・実装していない候補であり、今後の課題として記録するもの。
 
 - **DACLの絞り込み**: `Everyone` への読み書き権限を制限する案。ただし本家Interceptionプロトコル
-  互換性(無昇格プロセスからの利用)とのトレードオフが大きく、単純な変更はできない
+  互換性(無昇格プロセスからの利用)とのトレードオフが大きく、単純な変更はできない。サードパーティ製
+  ツール`interception-driver-fix`がオプトインの管理者限定ロックダウンモードとして同種の機能を
+  実装しており、実需の裏付けとして[`docs/THIRD_PARTY_INTERCEPTION_DRIVER_FIX.md`](THIRD_PARTY_INTERCEPTION_DRIVER_FIX.md)
+  に記録している
 - **消費側プロセスの許可リスト/署名検証**: コントロールデバイスを開けるプロセスを制限する案。
   ただしプロトコル仕様自体には存在しない拡張であり、既存クライアントとの互換性を損なう可能性が
   高い
@@ -110,5 +113,7 @@ static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRG
 - [`docs/PROTOCOL.md`](PROTOCOL.md)(プロトコル仕様)
 - [`docs/CLEAN_ROOM.md`](CLEAN_ROOM.md)(実装の出自の証跡)
 - [`docs/DECISIONS.md`](DECISIONS.md)(監査ログ・トースト通知機能の設計判断・不採用案の詳細)
+- [`docs/THIRD_PARTY_INTERCEPTION_DRIVER_FIX.md`](THIRD_PARTY_INTERCEPTION_DRIVER_FIX.md)
+  (DACLロックダウン案と同種の機能を実装しているサードパーティ製ツールの調査)
 - 商用版EULA: OpenInputBridge Pro / OpenInputBridge Subscription の
   `licensing/**/setup/License.ja-JP.rtf` / `License.en-US.rtf`(禁止事項の条項)
