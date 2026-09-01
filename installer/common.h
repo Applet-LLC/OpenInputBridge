@@ -88,15 +88,16 @@ bool IsRunningElevated();
 
 // True if this machine's *native* OS (not this process's own architecture, which matters since
 // an x64 process can run under emulation on ARM64 — GetNativeSystemInfo reports the real one)
-// is x64, and its build number is at least 18362 (Windows 10 version 1903, "May 2019 Update").
-// This is the actual technical floor main.cpp's version gate enforces; see kUnsupportedEnvironmentMessage
-// there for why the message shown to users names Windows 11 (the officially supported target)
-// instead of citing 1903 — this floor is deliberately kept a bit below that as headroom, not as
-// a line customers should read as "supported down to here". A kernel driver for a Windows
-// version/architecture combination it was never built or tested against isn't just "maybe
-// works" — it can BSOD or silently corrupt input handling, so this is checked before any
-// install action proceeds (main.cpp's --skip-version-check exists for the Pro/Subscription
-// installers' own use, in case their own MSI's CustomAction sequence needs to bypass this).
+// is x64, and its build number is at least 22000 (Windows 11, original release). Windows 10 is
+// NOT supported, even recent builds of it (e.g. 22H2/build 19045): the driver has only ever
+// been built/tested against Windows 11, and installing this filter driver on Windows 10 has
+// been confirmed (see the 2026-09-01 entry in docs/DECISIONS.md, filed from
+// https://github.com/Applet-LLC/OpenInputBridge/issues/4) to leave the keyboard and mouse
+// completely unusable after reboot -- not just "maybe works". A kernel driver for a Windows
+// version/architecture combination it was never built or tested against can BSOD or silently
+// corrupt input handling, so this is checked before any install action proceeds (main.cpp's
+// --skip-version-check exists for the Pro/Subscription installers' own use, in case their own
+// MSI's CustomAction sequence needs to bypass this).
 bool IsSupportedWindowsEnvironment();
 
 // Classifies a driver catalog (.cat) file's Authenticode signature into what it takes to

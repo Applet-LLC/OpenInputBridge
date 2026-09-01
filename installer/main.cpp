@@ -20,10 +20,10 @@
 //
 // Every invocation (regardless of which of the above) is gated on
 // common.h's IsSupportedWindowsEnvironment() first, unless --skip-version-check is also passed
-// — this driver has only ever been built/tested for x64 Windows 10 1903+ (see that function's
-// own comment for why the message below still cites Windows 11), and installing a kernel
-// driver on an unsupported combination risks a BSOD or silent input-handling corruption, not
-// just "might not work". --skip-version-check exists for the Pro/Subscription editions' own
+// — this driver has only ever been built/tested for x64 Windows 11+ (Windows 10 is explicitly
+// NOT supported; see that function's own comment and docs/DECISIONS.md's 2026-09-01 entry), and
+// installing a kernel driver on an unsupported combination risks a BSOD or silent input-handling
+// corruption, not just "might not work". --skip-version-check exists for the Pro/Subscription editions' own
 // WiX installers, which call this executable from a CustomAction sequence that may already
 // have its own, equivalent precondition checks earlier in the UI flow.
 

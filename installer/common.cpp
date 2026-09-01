@@ -87,7 +87,7 @@ bool IsSupportedWindowsEnvironment()
         return false;
     }
 
-    constexpr unsigned long kMinimumSupportedBuildNumber = 18362; // Windows 10 1903.
+    constexpr unsigned long kMinimumSupportedBuildNumber = 22000; // Windows 11, original release.
     return wcstoul(buildNumberText, nullptr, 10) >= kMinimumSupportedBuildNumber;
 }
 

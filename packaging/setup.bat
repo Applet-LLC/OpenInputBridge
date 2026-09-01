@@ -21,7 +21,7 @@ rem batch-level copy exists only so an obviously unsupported system fails fast, 
 rem showing a UAC prompt, instead of self-elevating first and then failing four times over
 rem (once per OpenInputBridgeSetup.exe call below).
 
-for /f %%A in ('powershell -NoProfile -Command "if ([Environment]::Is64BitOperatingSystem -and [System.Environment]::OSVersion.Version.Build -ge 18362) { 'OK' } else { 'NG' }"') do set OIB_VERCHECK=%%A
+for /f %%A in ('powershell -NoProfile -Command "if ([Environment]::Is64BitOperatingSystem -and [System.Environment]::OSVersion.Version.Build -ge 22000) { 'OK' } else { 'NG' }"') do set OIB_VERCHECK=%%A
 if not "%OIB_VERCHECK%"=="OK" (
     echo This is the wrong Windows version. It's for Windows 11.
     pause

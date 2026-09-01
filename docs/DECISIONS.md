@@ -971,3 +971,41 @@ CRLFを前提としており、LFのみの場合に解析が崩れることが�
 OSS版・Subscription版とも同じ修正を反映し、両方の実行ファイル(`OpenInputBridgeSetup.exe`、
 `OibToastHelper.exe`)を再ビルド確認済み。実機での動作確認(トーストクリック→
 エクスプローラーでの選択表示)は次回のユーザーテストで実施予定。
+
+---
+
+## 2026-09-01: OS事前チェックの下限をWindows 10 1903からWindows 11(ビルド22000)に引き上げ
+
+### 経緯
+
+[Issue #4](https://github.com/Applet-LLC/OpenInputBridge/issues/4)にて、Windows 10 x64 22H2
+(ビルド19045)環境に本ドライバをインストールしたところ、再起動後にキーボード・マウスとも
+入力不可になるという報告があった。
+
+`OpenInputBridgeSetup.exe`(`common.cpp`の`IsSupportedWindowsEnvironment`)・`setup.bat`とも、
+2026-08-11の事前チェック導入時点では、技術的な下限としてビルド18362(Windows 10 1903、
+"May 2019 Update")を採用しており、Windows 10 22H2(ビルド19045)はこれを満たすため
+インストールを許可していた。表向きの対応OSは当初からWindows 11以上とアナウンスしており
+(エラーメッセージも"It's for Windows 11."のまま)、Windows 10は実機での動作確認・
+サポート対象外だったが、コード側のチェックがそれよりも緩く、Windows 10でもインストールが
+通ってしまう不整合があった。
+
+### 対応
+
+- `installer/common.cpp`の`kMinimumSupportedBuildNumber`を18362から22000
+  (Windows 11の最初のリリースビルド)に変更。
+- `installer/common.h`・`installer/main.cpp`のコメントを、Windows 10 1903+ではなく
+  Windows 11+が実際のチェック対象である旨に修正。
+- `packaging/setup.bat`側の事前チェック(PowerShellでのビルド番号比較)も同じく
+  18362から22000に変更。`OpenInputBridgeSetup.exe`本体のチェックとsetup.bat側の
+  チェックは常に同じ下限を指す必要がある(2026-08-11の項参照)。
+- `README.md`のインストール手順説明を「Windows 10 バージョン1903（May 2019 Update）以降」
+  から「Windows 11以降」に修正し、Windows 10が(22H2のような最新パッチレベルであっても)
+  非対応であることを明記。
+
+`packaging/dist-readme/README.en-US.txt`・`README.ja-JP.txt`は、配布物作成時点から
+既に「Windows 11 24H2 or later」と記載しておりコード側との不整合はなかった
+(実際のチェックがそれより緩かっただけ)。エラーメッセージ自体
+("This is the wrong Windows version. It's for Windows 11.")も変更していない
+— 表向きの対応OSの説明は当初から一貫してWindows 11であり、今回はコード側の
+チェックをその説明に合わせて厳格化したという位置づけ。
