@@ -40,7 +40,7 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ## アーキテクチャ概要
 
-- KMDF（Kernel-Mode Driver Framework）ベースのフィルタドライバ。キーボード用（`oib_kbd.sys`, `Class=Keyboard`）・マウス用（`oib_mou.sys`, `Class=Mouse`）の2バイナリで構成（`driver/common/`の共通ロジックを両方から参照）。`keyboard.sys`/`mouse.sys`という素直な名前ではないのは、Windows標準搭載の`keyboard.inf`/`mouse.inf`（PS/2キーボード/マウスのインボックスドライバ）とDriver Store上で名前が衝突するため（[docs/DECISIONS.md](docs/DECISIONS.md)の2026-08-02付エントリ参照）
+- KMDF（Kernel-Mode Driver Framework）ベースのフィルタドライバ。キーボード用（`oib_kbd.sys`, `Class=Keyboard`）・マウス用（`oib_mou.sys`, `Class=Mouse`）の2バイナリで構成（`driver/common/`の共通ロジックを両方から参照）。x64・ARM64双方向けにネイティブビルドしたものを配布zipに同梱し、インストール時にホストのアーキテクチャに応じた方を自動選択します。インストーラ本体（`OpenInputBridgeSetup.exe`/`OpenInputBridgeSetup-arm64.exe`）もx64・ARM64それぞれネイティブビルドが必要です（ドライバのインストール処理そのもの（`SetupInstallServicesFromInfSectionW`）がホストと異なるアーキテクチャのプロセスからの呼び出しを拒否するため、x64版をARM64環境のエミュレーションで動かすことはできません。詳細は[docs/DECISIONS.md](docs/DECISIONS.md)のARM64対応エントリ参照）。トーストヘルパー（`OibToastHelper.exe`）はドライバインストールAPIを呼ばないためx64のみで、ARM64環境ではWindowsのx64エミュレーションで動作します。`keyboard.sys`/`mouse.sys`という素直な名前ではないのは、Windows標準搭載の`keyboard.inf`/`mouse.inf`（PS/2キーボード/マウスのインボックスドライバ）とDriver Store上で名前が衝突するため（[docs/DECISIONS.md](docs/DECISIONS.md)の2026-08-02付エントリ参照）
 - それぞれ対応するデバイスクラススタックに上位フィルタとしてアタッチし、`IOCTL_INTERNAL_*_CONNECT` によるクラスサービスコールバックの差し替えで入力を捕捉/再注入
 - Interceptionでは、キーボードとマウスの両方のドライバのインストールが必要であり、それを踏襲しています。
 - 物理デバイスの有無によらず常時20個のコントロールデバイスを公開し、上位のユーザーモードライブラリとの互換性を維持。既定ではキーボード×10・マウス×10だが、OpenInputBridgeでは、この配分を`KeyboardSlotCount`レジストリ値（インストーラの`--slots=N`）で変更可能（詳細は[インストール](#インストール)・[`docs/PROTOCOL.md`](docs/PROTOCOL.md)参照）
@@ -64,8 +64,8 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ## インストール
 
-ソリューションの`Packaging`プロジェクトをbuildして作られたzip（`OpenInputBridge.zip`）を展開すると、`oib_kbd\`・`oib_mou\`（それぞれ`.inf`/`.cat`/`.sys`）と
-`OpenInputBridgeSetup.exe`・`setup.bat` が含まれています。
+ソリューションの`Packaging`プロジェクトをbuildして作られたzip（`OpenInputBridge.zip`）を展開すると、`oib_kbd\`・`oib_mou\`（それぞれ`x64\`・`arm64\`サブフォルダの下に`.inf`/`.cat`/`.sys`）と
+`OpenInputBridgeSetup.exe`（x64）・`OpenInputBridgeSetup-arm64.exe`（ARM64）・`setup.bat` が含まれています。`setup.bat`はホストのアーキテクチャに応じてどちらの`OpenInputBridgeSetup*.exe`を使うか自動で判定します。
 
 **注意**: このzipにはドライバ本体とインストーラのみが含まれ、クライアント側の`interception.dll`は配布していません。Interception互換の既存アプリを動かすには、[oblitum/Interception](https://github.com/oblitum/Interception)のLGPL公開ライブラリから別途`interception.dll`を入手してください（本リポジトリの`third_party/interception/`はこのライブラリのソースを無改変で取り込んだもので、interception.dllはbuild可能です。また、[`tests/upstream_lib/`](tests/upstream_lib/)が実際にこの方法でビルドしています）。
 
@@ -85,7 +85,7 @@ WHQL署名済みドライバではこの手順は不要です。
 
 - setup.batを実行すれば、インストールされます。以下は、batファイルでの実施内容です。
 
-- x64かつWindows 11以降かを確認し（Windows 10は、最新の22H2であっても**非対応**です。
+- x64またはARM64かつWindows 11以降かを確認し（Windows 10は、最新の22H2であっても**非対応**です。
   インストールするとキーボード/マウスが再起動後に使用不可となります）、満たさなければ
   「This is the wrong Windows version. It's for Windows 11.」と表示してその場で中止する
 - 条件を満たせば、自ら管理者権限へ昇格し（.batファイル自体にはUACを自動表示するマニフェストが
@@ -104,6 +104,14 @@ WHQL署名済みドライバではこの手順は不要です。
 
 `OpenInputBridgeSetup.exe` は静的にCRTをリンクしているため、別途Visual C++
 再頒布可能パッケージをインストールする必要はありません。
+
+**ARM64環境の場合**: 以降このドキュメントで`OpenInputBridgeSetup.exe`と表記している箇所は、
+すべて同梱の`OpenInputBridgeSetup-arm64.exe`に読み替えてください（引数・動作は同一です）。
+x64版をARM64環境でそのまま実行すると、ドライバのインストール処理が
+`SetupInstallServicesFromInfSectionW`失敗（`ERROR_IN_WOW64`）で途中で止まります
+（詳細は[docs/DECISIONS.md](docs/DECISIONS.md)参照）。`setup.bat`経由のインストールでは
+自動的に判定されるため、この読み替えは`OpenInputBridgeSetup*.exe`を直接実行する場合のみ
+意識してください。
 
 完了後、**再起動してください。** `UpperFilters`（デバイスクラスへのフィルタ登録）はOS起動時の
 デバイススタック構築時にのみ反映されるため、再起動なしでは有効になりません。
@@ -223,11 +231,25 @@ git submodule update --init --recursive
 まとめてあります。ドライバ／インストーラのビルドから、EV署名・`Signed\`への集約・配布用zip作成
 （`dist\OpenInputBridge.zip`）までを、ソリューション構成の切り替えだけで一括処理できます。
 
+ドライバ本体（`oib_kbd`/`oib_mou`）とインストーラ本体（`OpenInputBridgeSetup`）は、いずれも
+x64・ARM64の両方を1回のソリューションビルドで生成します。ARM64版はConfiguration Manager上で
+PlatformがARM64に固定された別プロジェクト（`oib_kbd_arm64`/`oib_mou_arm64`/
+`OpenInputBridgeSetup_arm64`、ソースはそれぞれのx64版プロジェクトと共有）として存在するため、
+通常どおり`Platform=x64`でビルドしてもARM64版が一緒にビルドされ、プラットフォームを
+手動で切り替える必要はありません。インストーラもARM64ネイティブビルドが必要なのは、
+ドライバのサービス登録処理（`SetupInstallServicesFromInfSectionW`）がホストと異なる
+アーキテクチャのプロセスからの呼び出しを拒否するため（実機で確認済み。詳細は
+[docs/DECISIONS.md](docs/DECISIONS.md)参照）で、x64版をARM64環境のエミュレーションで
+動かすことはできません。トーストヘルパー（`OibToastHelper.exe`）はドライバインストールAPIを
+呼ばないためx64のみで、ARM64環境ではWindowsのx64エミュレーションで動作します。
+ARM64向けにクロスビルドするには、使用しているVisual Studio/WDK環境にARM64ビルドツールが
+インストールされている必要があります。
+
 | ソリューション構成 | 内容 |
 |---|---|
 | `Debug` | ドライバ・インストーラのみビルド（テスト署名、開発用）。署名・パッケージングは実行されません。**自分でビルドして試す場合はこちら**（前掲の表の「セルフビルド版バイナリ」に対応） |
 | `Release` | ドライバ・インストーラをビルドし、両方をこのプロジェクトのEV証明書で署名して`packaging\Signed\`に集約、`dist\OpenInputBridge.zip`を作成（WHQL署名を取得する前の配布物） |
-| `ReleaseWHQL` | インストーラのみEV署名して集約し、`packaging\Signed\oib_kbd\`・`packaging\Signed\oib_mou\`はHLK/WHQL申請から返ってきたファイルを**手動で配置したまま上書きしない**でzip作成（WHQL署名取得後の配布物） |
+| `ReleaseWHQL` | インストーラのみEV署名して集約し、`packaging\Signed\oib_kbd\x64\`・`packaging\Signed\oib_kbd\arm64\`・`packaging\Signed\oib_mou\x64\`・`packaging\Signed\oib_mou\arm64\`はHLK/WHQL申請から返ってきたファイルを**手動で配置したまま上書きしない**でzip作成（WHQL署名取得後の配布物。WHQL認定はアーキテクチャごとに個別のHLK申請が必要です） |
 
 `Release`/`ReleaseWHQL`はこのプロジェクト（Applet LLC）名義のEV証明書を前提としており、リポジトリ所有者以外の環境では意図した形で完走しません。証明書が無い環境で`Release`/`ReleaseWHQL`を使うと、`packaging\sign.mak`の署名コマンドは失敗しますが、失敗を無視する作りになっているため**ビルド自体は正常終了し、未署名（テスト署名ですらない）のバイナリがそのまま`dist\OpenInputBridge.zip`に入ってしまいます**。この状態のバイナリはテスト署名を有効にしたWindowsでもロードできません。EV証明書を持たない場合は、必ず`Debug`構成を使ってください。
 
@@ -240,10 +262,11 @@ msbuild OpenInputBridge.sln /p:Configuration=Debug /p:Platform=x64
 
 同じ環境変数を継いだまま `devenv OpenInputBridge.sln` でVisual Studio IDEを開いても操作できます。
 
-`ReleaseWHQL`構成を使う前に、HLK/WHQL申請から返ってきた `oib_kbd.inf`/`oib_kbd.cat`/`oib_kbd.sys` を
-`packaging\Signed\oib_kbd\` に、`oib_mou.inf`/`oib_mou.cat`/`oib_mou.sys` を
-`packaging\Signed\oib_mou\` に、それぞれ手動でコピーしておいてください
-（`Signed\Symbol\` はこちらの手元のビルドから毎回自動で更新されます）。
+`ReleaseWHQL`構成を使う前に、x64・ARM64それぞれのHLK/WHQL申請（別々の申請になります）から
+返ってきた `oib_kbd.inf`/`oib_kbd.cat`/`oib_kbd.sys` を `packaging\Signed\oib_kbd\x64\`・
+`packaging\Signed\oib_kbd\arm64\` に、`oib_mou.inf`/`oib_mou.cat`/`oib_mou.sys` を
+`packaging\Signed\oib_mou\x64\`・`packaging\Signed\oib_mou\arm64\` に、それぞれ手動で
+コピーしておいてください（`Signed\Symbol\` はこちらの手元のビルドから毎回自動で更新されます）。
 
 署名・パッケージングの内部的な処理内容（個別のnmakeターゲット等）は `packaging/sign.mak` のコメントを
 参照してください。ロードマップは [ステータス](#ステータス) を参照してください。

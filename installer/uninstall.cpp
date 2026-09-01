@@ -103,8 +103,9 @@ int RunUninstallOne(const DriverInfo& driver)
         wprintf(L"Deleted the %s service registration.\n", driver.ServiceName);
     }
 
-    std::filesystem::path infPath =
-        GetModuleDirectory() / driver.PackageName / (std::wstring(driver.PackageName) + L".inf");
+    const wchar_t* archSubdir = IsNativeArm64() ? L"arm64" : L"x64";
+    std::filesystem::path infPath = GetModuleDirectory() / driver.PackageName / archSubdir /
+        (std::wstring(driver.PackageName) + L".inf");
     BOOL needReboot = FALSE;
 
     if (!std::filesystem::exists(infPath)) {

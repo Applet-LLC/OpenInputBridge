@@ -5,9 +5,12 @@
 ; Primitive driver INF (Windows 10 1903+; see
 ; https://learn.microsoft.com/windows-hardware/drivers/develop/creating-a-primitive-driver):
 ; installed/uninstalled via DiInstallDriver/DiUninstallDriver (installer/), not matched to any
-; hardware ID. [DefaultInstall.NTamd64] stages oib_mou.sys into the driver store and registers
-; it as a SERVICE_KERNEL_DRIVER/SERVICE_SYSTEM_START service (see docs/PROTOCOL.md for why
-; boot-early start matters here).
+; hardware ID. [DefaultInstall.NTamd64]/[DefaultInstall.NTarm64] stage oib_mou.sys into the
+; driver store and register it as a SERVICE_KERNEL_DRIVER/SERVICE_SYSTEM_START service (see
+; docs/PROTOCOL.md for why boot-early start matters here). Shared unchanged between the x64
+; (oib_mou.vcxproj) and ARM64 (oib_mou_arm64.vcxproj) builds — each stamps this same INF text
+; into its own package folder alongside its own compiled oib_mou.sys; the unused decorated
+; section is simply ignored on the other architecture.
 ;
 ; Mouse half of the former single-binary OpenInputBridge.sys/Class=System driver (see
 ; docs/DECISIONS.md's 2026-07-30 entry): declaring Class=Mouse here (instead of System) is the
@@ -69,6 +72,12 @@ oib_mou.sys = 1
 CopyFiles = Mouse.CopyFiles
 
 [DefaultInstall.NTamd64.Services]
+AddService = OpenInputBridgeMouse,,Mouse.ServiceInstall
+
+[DefaultInstall.NTarm64]
+CopyFiles = Mouse.CopyFiles
+
+[DefaultInstall.NTarm64.Services]
 AddService = OpenInputBridgeMouse,,Mouse.ServiceInstall
 
 [Mouse.CopyFiles]

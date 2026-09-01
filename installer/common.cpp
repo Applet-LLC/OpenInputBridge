@@ -58,11 +58,21 @@ bool IsRunningElevated()
     return isElevated != FALSE;
 }
 
-bool IsSupportedWindowsEnvironment()
+namespace {
+
+DWORD GetNativeProcessorArchitecture()
 {
     SYSTEM_INFO systemInfo{};
     GetNativeSystemInfo(&systemInfo); // native architecture even if this process runs under emulation.
-    if (systemInfo.wProcessorArchitecture != PROCESSOR_ARCHITECTURE_AMD64) {
+    return systemInfo.wProcessorArchitecture;
+}
+
+} // namespace
+
+bool IsSupportedWindowsEnvironment()
+{
+    DWORD architecture = GetNativeProcessorArchitecture();
+    if (architecture != PROCESSOR_ARCHITECTURE_AMD64 && architecture != PROCESSOR_ARCHITECTURE_ARM64) {
         return false;
     }
 
@@ -89,6 +99,11 @@ bool IsSupportedWindowsEnvironment()
 
     constexpr unsigned long kMinimumSupportedBuildNumber = 22000; // Windows 11, original release.
     return wcstoul(buildNumberText, nullptr, 10) >= kMinimumSupportedBuildNumber;
+}
+
+bool IsNativeArm64()
+{
+    return GetNativeProcessorArchitecture() == PROCESSOR_ARCHITECTURE_ARM64;
 }
 
 DriverSignatureLevel GetDriverSignatureLevel(const std::wstring& catalogPath)

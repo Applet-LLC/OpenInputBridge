@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: MIT
 // Licensed under the MIT License. See LICENSE file in the project root for full license text.
 //
-// Installer: stages one driver package (<exeDir>\<PackageName>\<PackageName>.inf/.cat/.sys,
-// see common.h's DriverInfo) into the Driver Store via DiInstallDriverW, then separately runs
-// [DefaultInstall.NTamd64.Services] against the *staged* copy of the INF via
-// SetupInstallServicesFromInfSectionW to actually create the
+// Installer: stages one driver package (<exeDir>\<PackageName>\<arch>\<PackageName>.inf/.cat/
+// .sys, <arch> being "x64" or "arm64" per common.h's IsNativeArm64() — see common.h's
+// DriverInfo and packaging/sign.mak's distribution layout comment) into the Driver Store via
+// DiInstallDriverW, then separately runs [DefaultInstall.NTamd64.Services] or
+// [DefaultInstall.NTarm64.Services] (same arch selection) against the *staged* copy of the INF
+// via SetupInstallServicesFromInfSectionW to actually create the
 // SERVICE_KERNEL_DRIVER/SERVICE_SYSTEM_START service (DiInstallDriverW alone only stages the
 // package — see common.h for why), then registers the driver as an upper filter positioned
 // immediately before its class driver (kbdclass/mouclass). See driver/keyboard/oib_kbd.inx,
@@ -111,9 +113,9 @@ bool CreateServiceFromStagedInf(const DriverInfo& driver)
         return false;
     }
 
-    BOOL serviceInstalled = SetupInstallServicesFromInfSectionW(
-        infHandle, L"DefaultInstall.NTamd64.Services", 0
-        );
+    const wchar_t* servicesSection =
+        IsNativeArm64() ? L"DefaultInstall.NTarm64.Services" : L"DefaultInstall.NTamd64.Services";
+    BOOL serviceInstalled = SetupInstallServicesFromInfSectionW(infHandle, servicesSection, 0);
 
     SetupCloseInfFile(infHandle);
 
@@ -154,8 +156,10 @@ ULONG ResolveKeyboardSlotCount(DriverType type, std::optional<ULONG> requestedSl
 
 int RunInstallOne(const DriverInfo& driver, DriverType type, std::optional<ULONG> requestedSlots)
 {
-    std::filesystem::path infPath =
-        GetModuleDirectory() / driver.PackageName / (std::wstring(driver.PackageName) + L".inf");
+    const wchar_t* archSubdir = IsNativeArm64() ? L"arm64" : L"x64";
+
+    std::filesystem::path infPath = GetModuleDirectory() / driver.PackageName / archSubdir /
+        (std::wstring(driver.PackageName) + L".inf");
 
     if (!std::filesystem::exists(infPath)) {
         wprintf(L"[ERROR] Driver package not found: %s\n", infPath.c_str());
@@ -165,8 +169,8 @@ int RunInstallOne(const DriverInfo& driver, DriverType type, std::optional<ULONG
     // A driver package that can't actually load once installed is worse than useless -- it's a
     // silent trap that only surfaces after the required reboot. Checked here, before
     // DiInstallDriverW does anything, rather than left to the user to discover after rebooting.
-    std::filesystem::path catPath =
-        GetModuleDirectory() / driver.PackageName / (std::wstring(driver.PackageName) + L".cat");
+    std::filesystem::path catPath = GetModuleDirectory() / driver.PackageName / archSubdir /
+        (std::wstring(driver.PackageName) + L".cat");
     DriverSignatureLevel signatureLevel = GetDriverSignatureLevel(catPath.wstring());
 
     if (signatureLevel == DriverSignatureLevel::Unsigned) {

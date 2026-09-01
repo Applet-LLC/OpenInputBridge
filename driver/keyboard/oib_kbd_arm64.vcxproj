@@ -4,50 +4,48 @@ Copyright (c) 2026 OpenInputBridge Contributors
 SPDX-License-Identifier: MIT
 Licensed under the MIT License. See LICENSE file in the project root for full license text.
 
-Structure adapted from Microsoft's public moufiltr sample project file
-(microsoft/Windows-driver-samples, input/moufiltr/sys) — see docs/CLEAN_ROOM.md.
-x64 build. The ARM64 build is oib_mou_arm64.vcxproj, a separate project in this same directory
-that references these same source files by relative path rather than duplicating them — see its
-own header comment.
-
-Mouse half of the former single-binary OpenInputBridge.sys (see docs/DECISIONS.md's
-2026-07-30 entry): compiles the shared driver/common sources (driver.c/ioctl.c/slots.c,
-unmodified — see driver.h's comment on OIB_BUILD_KEYBOARD/OIB_BUILD_MOUSE) alongside this
-project's own mousefilter.c.
+ARM64 build of the keyboard filter driver. Deliberately a separate project file rather than an
+additional Platform inside oib_kbd.vcxproj: it lives in the same driver/keyboard/ directory and
+every ClCompile/ClInclude/Inf item below references the exact same source files oib_kbd.vcxproj
+does (kbdfilter.c/.h, ../common/*.c/.h, oib_kbd.inx) by the same relative paths — i.e. this
+project shares source with oib_kbd.vcxproj by reference, it does not copy it. It is wired into
+OpenInputBridge.sln with ONLY an ARM64 project configuration, mapped from every existing (x64)
+solution configuration via Configuration Manager, so a single ordinary solution build produces
+both the x64 and ARM64 .sys in the same pass without adding a new solution Platform. See
+docs/DECISIONS.md for the ARM64 support decision (GitHub issue #2).
 -->
 <Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
-    <ProjectConfiguration Include="Debug|x64">
+    <ProjectConfiguration Include="Debug|ARM64">
       <Configuration>Debug</Configuration>
-      <Platform>x64</Platform>
+      <Platform>ARM64</Platform>
     </ProjectConfiguration>
-    <ProjectConfiguration Include="Release|x64">
+    <ProjectConfiguration Include="Release|ARM64">
       <Configuration>Release</Configuration>
-      <Platform>x64</Platform>
+      <Platform>ARM64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{2D4F6B8A-AC3E-4F7D-9B2A-6E4C8D1A3F59}</ProjectGuid>
-    <RootNamespace>$(MSBuildProjectName)</RootNamespace>
+    <ProjectGuid>{6C29DE73-2EC4-4789-8D6B-89296D2BECA2}</ProjectGuid>
+    <RootNamespace>oib_kbd_arm64</RootNamespace>
     <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
     <KMDF_VERSION_MINOR>33</KMDF_VERSION_MINOR>
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
-    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+    <Platform Condition="'$(Platform)' == ''">ARM64</Platform>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <TargetVersion>Windows10</TargetVersion>
     <UseDebugLibraries>False</UseDebugLibraries>
     <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
     <DriverType>KMDF</DriverType>
     <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
     <ConfigurationType>Driver</ConfigurationType>
-    <!-- See OpenInputBridge.vcxproj's original comment (docs/CLEAN_ROOM.md predecessor): Off
-         skips WDF's auto test-signing for Release, so the shipped .sys carries exactly one
-         (real, EV) signature from packaging/sign.mak. Debug stays at the framework default. -->
+    <!-- See oib_kbd.vcxproj's identical comment: Off skips WDF's auto test-signing for Release,
+         so the shipped .sys carries exactly one (real, EV) signature from packaging/sign.mak. -->
     <SignMode>Off</SignMode>
   </PropertyGroup>
-  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <TargetVersion>Windows10</TargetVersion>
     <UseDebugLibraries>True</UseDebugLibraries>
     <DriverTargetPlatform>Windows Driver</DriverTargetPlatform>
@@ -57,27 +55,34 @@ project's own mousefilter.c.
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
-    <!-- $(MSBuildProjectDirectory)-relative, not $(SolutionDir)-relative — see
-         OpenInputBridge.vcxproj's original comment; packaging/sign.mak hardcodes
-         ..\driver\mouse\x64\$(Configuration)\ as this project's output location. -->
+    <!-- $(MSBuildProjectDirectory)-relative, not $(SolutionDir)-relative — see oib_kbd.vcxproj;
+         packaging/sign.mak hardcodes ..\driver\keyboard\ARM64\$(Configuration)\ as this
+         project's output location. -->
     <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <!-- WindowsDriver.Common.targets defaults PackageDir to $(OutDir)$(ProjectName)\, and
+         $(ProjectName) is this .vcxproj file's own base name ("oib_kbd_arm64"), not
+         $(TargetName) ("oib_kbd") — for oib_kbd.vcxproj those happen to be the same string,
+         which is why that project never needed this override. Pin it explicitly so the
+         packaged driver folder is named oib_kbd\ here too, matching what packaging/sign.mak
+         and installer/install.cpp both expect. -->
+    <PackageDir>$(OutDir)oib_kbd\</PackageDir>
   </PropertyGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
   </ImportGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
   </ImportGroup>
   <ItemGroup Label="WrappedTaskItems" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <!-- Not "mouse": every Windows install already has an inbox mouse.inf/.sys — see
-         oib_mou.inx's header comment for the Driver Store name collision this avoids. -->
-    <TargetName>oib_mou</TargetName>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+    <!-- Same TargetName as the x64 project: the shared oib_kbd.inx's CopyFiles/ServiceBinary
+         entries hardcode oib_kbd.sys regardless of architecture. -->
+    <TargetName>oib_kbd</TargetName>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <TargetName>oib_mou</TargetName>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+    <TargetName>oib_kbd</TargetName>
   </PropertyGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
     <ClCompile>
       <TreatWarningAsError>true</TreatWarningAsError>
       <WarningLevel>Level4</WarningLevel>
@@ -87,7 +92,7 @@ project's own mousefilter.c.
            code page (e.g. Shift-JIS/932) misreads non-ASCII characters (em dashes, etc.)
            in comments and fails with C4819 (treated as error via TreatWarningAsError). -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>OIB_BUILD_MOUSE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>OIB_BUILD_KEYBOARD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -96,14 +101,14 @@ project's own mousefilter.c.
     <!-- No <DriverSign> block: signing is controlled by the $(SignMode)=Off project property
          set above (Release Configuration PropertyGroup), not by DriverSign item metadata. -->
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <ClCompile>
       <TreatWarningAsError>true</TreatWarningAsError>
       <WarningLevel>Level4</WarningLevel>
       <ExceptionHandling>
       </ExceptionHandling>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>OIB_BUILD_MOUSE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>OIB_BUILD_KEYBOARD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -117,28 +122,28 @@ project's own mousefilter.c.
     <ClCompile Include="..\common\driver.c" />
     <ClCompile Include="..\common\ioctl.c" />
     <ClCompile Include="..\common\slots.c" />
-    <ClCompile Include="mousefilter.c" />
+    <ClCompile Include="kbdfilter.c" />
   </ItemGroup>
   <ItemGroup>
     <!--
-      Pinned DateStamp rather than the WDK default of "*" (today's date) — see
-      OpenInputBridge.vcxproj's original comment (Inf2Cat's Signability test rejects a
-      postdated DriverVer). Bump this if it ever again trips a "postdated DriverVer" failure.
+      Pinned DateStamp rather than the WDK default of "*" (today's date) — see oib_kbd.vcxproj
+      (Inf2Cat's Signability test rejects a postdated DriverVer). Bump this if it ever again
+      trips a "postdated DriverVer" failure. Same shared oib_kbd.inx as the x64 project.
     -->
-    <Inf Include="oib_mou.inx">
+    <Inf Include="oib_kbd.inx">
       <SpecifyDriverVerDirectiveDate>true</SpecifyDriverVerDirectiveDate>
       <DateStamp>01/01/2026</DateStamp>
     </Inf>
     <FilesToPackage Include="$(TargetPath)" Condition="'$(ConfigurationType)'=='Driver' or '$(ConfigurationType)'=='DynamicLibrary'" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="oib_mou.rc" />
+    <ResourceCompile Include="oib_kbd.rc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\common\driver.h" />
     <ClInclude Include="..\common\ioctl.h" />
     <ClInclude Include="..\common\slots.h" />
-    <ClInclude Include="mousefilter.h" />
+    <ClInclude Include="kbdfilter.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

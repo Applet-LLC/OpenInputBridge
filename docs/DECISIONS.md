@@ -1009,3 +1009,171 @@ OSS版・Subscription版とも同じ修正を反映し、両方の実行ファ�
 ("This is the wrong Windows version. It's for Windows 11.")も変更していない
 — 表向きの対応OSの説明は当初から一貫してWindows 11であり、今回はコード側の
 チェックをその説明に合わせて厳格化したという位置づけ。
+
+---
+
+## 2026-09-01: ARM64対応（[Issue #2](https://github.com/Applet-LLC/OpenInputBridge/issues/2)）
+
+### 経緯
+
+`oib_kbd.sys`/`oib_mou.sys`をARM64ネイティブでもビルド・配布できるようにしたい、という
+要望。現状は`OpenInputBridge.sln`のすべてのプロジェクトがx64のみで構成されている
+（`driver/keyboard/oib_kbd.vcxproj`・`driver/mouse/oib_mou.vcxproj`のヘッダコメントには
+「ARM64は将来追加できる」という趣旨の記述が以前から存在していた）。
+
+要件として、(1) ソリューションの1回のビルドでx64・ARM64両方のドライバが作れること
+（ARM64ビルドのためだけにソリューションのプラットフォームを手動切り替えする必要が
+ないこと）、(2) ARM64版のプロジェクトは既存x64プロジェクトのソースコードを（コピーではなく）
+参照する形で新規追加し、Configuration Manager上でARM64を選択する形にすること、
+(3) infファイルはアーキテクチャ間で共通のままでよいこと、が指定された。
+
+### 対応
+
+- **ドライバプロジェクト**: `driver/keyboard/oib_kbd_arm64.vcxproj`・
+  `driver/mouse/oib_mou_arm64.vcxproj`を新規追加。既存の`oib_kbd.vcxproj`/`oib_mou.vcxproj`と
+  同じディレクトリに置き、`ClCompile`/`ClInclude`/`Inf`の各項目は同じ相対パス
+  （`../common/*.c/.h`、`kbdfilter.c`/`mousefilter.c`、`oib_kbd.inx`/`oib_mou.inx`）で
+  既存ソースを参照する（コピーしない）。`ProjectConfigurations`は`Debug|ARM64`・
+  `Release|ARM64`のみを持つ。
+- **ソリューション配線**: `OpenInputBridge.sln`に新しいSolution Platform（`ARM64`）は
+  追加せず、既存の`Debug|x64`/`Release|x64`/`ReleaseWHQL|x64`という3つのソリューション構成
+  すべてについて、`oib_kbd_arm64`/`oib_mou_arm64`の`ActiveCfg`/`Build.0`を各々の
+  `Debug|ARM64`/`Release|ARM64`プロジェクト構成にマッピングした。これにより、
+  Configuration Manager上ではこの2プロジェクトのPlatform列が常にARM64に固定された状態で
+  見え、既存のビルドコマンド（`msbuild OpenInputBridge.sln /p:Platform=x64 ...`）を
+  そのまま実行するだけで両アーキテクチャが同時にビルドされる。`msbuild
+  OpenInputBridge.sln /p:Platform=x64 /t:oib_kbd_arm64`で実際にこの対応関係を確認し、
+  意図通りARM64としてビルドされること（このマシンにはARM64向けSpectre軽減ライブラリと
+  完全なWDKが入っていないため、コンパイル自体はMSB8040/`ntddk.h`不足でx64側と同様に
+  失敗するが、その手前までは正しく到達する）を確認済み。
+  `Packaging`プロジェクトの`ProjectDependencies`にも両プロジェクトを追加した。
+- **INFファイル**: `oib_kbd.inx`/`oib_mou.inx`は共有のまま、既存の`NTamd64`/
+  `NTamd64.Services`セクションと対になる`NTarm64`/`NTarm64.Services`セクションを追加した
+  （中身の`CopyFiles`/`ServiceInstall`セクションはアーキテクチャ非依存のためそのまま
+  共有）。x64ビルド・ARM64ビルドそれぞれのInf2Catステップが同じINF本文を自分の
+  パッケージフォルダにスタンプするだけなので、使わない方のデコレーションセクションは
+  単に無視される。
+- **パッケージング（`packaging/sign.mak`）**: x64/ARM64それぞれの`DRIVER_PACKAGE_DIR_*`/
+  `TARGET_*`変数を追加し、`sign-driver`/`sign-all`/`verify`/`stage-driver`/`stage-symbol`の
+  各ターゲットが両アーキテクチャを無条件に扱うようにした。配布ZIPのレイアウトを
+  `oib_kbd\oib_kbd.inf`のようなフラット構成から`oib_kbd\x64\oib_kbd.inf`・
+  `oib_kbd\arm64\oib_kbd.inf`という`<arch>`サブフォルダ付きの構成に変更（x64/ARM64を
+  1つのZIPに統合して同梱するため）。`nmake -f sign.mak -n stage`で生成コマンド列が
+  意図通りであることを確認済み。`whql`ターゲットは、WHQL認定がアーキテクチャごとに
+  個別のHLK申請になる（x64用とARM64用で別々に申請・別々に返ってくる）ことを踏まえ、
+  `Signed\oib_kbd\x64\`・`Signed\oib_kbd\arm64\`など4つのサブフォルダへの手動配置を
+  案内するよう更新した。
+- **インストーラ**: `installer/common.h`/`common.cpp`に`IsNativeArm64()`を追加
+  （`GetNativeSystemInfo`ベースの既存の`IsSupportedWindowsEnvironment()`と同じ
+  ネイティブアーキテクチャ判定を共有）。`IsSupportedWindowsEnvironment()`の許可
+  アーキテクチャを`PROCESSOR_ARCHITECTURE_AMD64`のみから、`PROCESSOR_ARCHITECTURE_ARM64`も
+  含む形に拡張。`install.cpp`のパッケージパス解決（`infPath`/`catPath`）とサービス
+  セクション名選択（`DefaultInstall.NTamd64.Services`/`DefaultInstall.NTarm64.Services`）、
+  および`uninstall.cpp`のパッケージパス解決を、`IsNativeArm64()`に基づく`x64`/`arm64`
+  サブフォルダ・セクション名選択に変更した。`installer\OpenInputBridgeSetup.vcxproj`を
+  ビルドし直し、変更がクリーンにコンパイルされることを確認済み。
+- **インストーラ本体・トーストヘルパーはx64のみ**とし、ARM64ネイティブ化はしない。
+  どちらもユーザーモードアプリであり、ARM64 Windows上ではx64エミュレーションで問題なく
+  動作するため（`IsSupportedWindowsEnvironment()`が元々`GetSystemInfo`ではなく
+  `GetNativeSystemInfo`を使っていたのも、まさにこの「インストーラ自身がエミュレーションで
+  動いていても実機のアーキテクチャを見る」ことを意図した設計だった）。ネイティブ
+  ビルドが必須なのはカーネルドライバ（.sys）のみ。
+- **配布物は統合ZIP**とし、x64/ARM64別々のリリースパッケージには分けない。
+  インストール時に`IsNativeArm64()`でホストのネイティブアーキテクチャを判定し、
+  該当する方のドライバパッケージを自動的に選択する。
+- `README.md`のアーキテクチャ概要・`setup.bat`のインストール条件説明・ビルド方法の
+  各節をARM64対応に合わせて更新。
+
+### 追記: パッケージ化フォルダ名の不一致修正
+
+実機ビルドで、コンパイル・リンク自体は成功して`.sys`は生成されるものの、`packaging\sign.mak`が
+参照する`driver\keyboard\ARM64\Release\oib_kbd\oib_kbd.sys`が見つからずコピー/署名に失敗する
+不具合が発覚。原因はWDKの`WindowsDriver.Common.targets`（`PackageDir`プロパティの既定値）が
+
+```
+<PackageDir Condition="'$(PackageDir)' == ''">$(OutDir)$(ProjectName)\</PackageDir>
+```
+
+となっており、パッケージ化先フォルダ名が`$(TargetName)`(`oib_kbd`)ではなく`$(ProjectName)`
+（vcxprojファイル自身の名前、新規追加した`oib_kbd_arm64`/`oib_mou_arm64`ではその名前）に
+なっていたため。既存の`oib_kbd.vcxproj`/`oib_mou.vcxproj`はプロジェクト名とTargetNameが
+たまたま一致していた（ファイル名がそのまま`oib_kbd`/`oib_mou`）ため、この問題が表面化して
+いなかった。`oib_kbd_arm64.vcxproj`/`oib_mou_arm64.vcxproj`の`OutDir`と同じ
+`PropertyGroup`に`<PackageDir>$(OutDir)oib_kbd\</PackageDir>`（マウス側は`oib_mou\`）を
+明示的に追加し、パッケージ化先フォルダ名をTargetNameベースの名前に固定した。
+
+### 追記: ARM64実機での`SetupInstallServicesFromInfSectionW`失敗（`ERROR_IN_WOW64`） — ネイティブARM64インストーラが必須と判明
+
+#### 症状
+
+上記のPackageDir修正後、ARM64 Windows 11実機に`setup.bat`でインストールしたところ、
+キーボード用ドライバは`DiInstallDriverW`でDriver Storeへの格納までは成功するものの、
+その直後の`SetupInstallServicesFromInfSectionW`（サービス登録）が失敗し、
+`OpenInputBridgeSetup.exe`が終了コード1で終了。マウス用ドライバは（`main.cpp`が
+キーボードの失敗で処理全体を打ち切るため）そもそも試行されなかった。Intel版（x64）
+Windows 11実機では同じ症状は再現しない。
+
+#### 原因
+
+`install.cpp`が`wprintf(L"... %lu\n", GetLastError())`で出力していたエラーコード
+`3758096949`（10進）は16進で`0xE0000235`。Windows SDK付属の`setupapi.h`
+（`Include\<version>\um\setupapi.h`）で
+
+```c
+#define ERROR_IN_WOW64  (APPLICATION_ERROR_MASK|ERROR_SEVERITY_ERROR|0x235)
+```
+
+と定義されている値と完全一致する。すなわち「WOW64プロセスからの呼び出しであるため、
+この操作は許可されていません」。ARM64 Windows上でx64エミュレーションにより動作している
+プロセスは、Microsoftの実装上この種のSetupAPI呼び出しに関してWOW64プロセス相当として
+扱われる。`DiInstallDriverW`はこの制約に該当しない（実機で確認済み: ステージングまでは
+成功する）が、`SetupInstallServicesFromInfSectionW`は該当するため、ここで失敗する。
+
+これは、インストーラ（`OpenInputBridgeSetup.exe`）はドライバと異なりユーザーモードアプリ
+なのでx64のままエミュレーションで動かせばよい、という当初の判断（[Issue #2](https://github.com/Applet-LLC/OpenInputBridge/issues/2)対応時の判断）が、ドライバの
+インストール処理そのものに関しては成立しないことを意味する。監査ログ・トースト通知・
+UpperFilters登録など、SetupAPIのドライバインストール系エントリポイントを使わない他の処理は、
+実機でも問題なくx64エミュレーションで動作している（`setup.bat`のログ上、
+`--enable-audit-log`・`--enable-toast`は正常終了している）。
+
+#### 対応
+
+- **`installer/OpenInputBridgeSetup_arm64.vcxproj`を新規追加**。ドライバのARM64対応
+  （`oib_kbd_arm64.vcxproj`等）と同じパターンで、`installer/`内の既存ソース
+  （`main.cpp`/`install.cpp`/`uninstall.cpp`/`common.cpp`/`auditlog.cpp`/
+  `toastsetup.cpp`/`verify.cpp`）を相対パスで参照する別プロジェクトとし、
+  `ProjectConfigurations`は`Debug|ARM64`/`Release|ARM64`のみ。`TargetName`は
+  `OpenInputBridgeSetup-arm64`とし、既存の`OpenInputBridgeSetup.exe`（x64）とは
+  別名にした（ドライバパッケージと異なりインストーラexeは配布zip直下にフラットに
+  置かれており、アーキテクチャ別サブフォルダを持たないため）。`OpenInputBridge.sln`にも
+  同じパターンでConfiguration Managerのマッピングを追加し、既存の3ソリューション構成
+  すべてでARM64に固定。`msbuild ... /p:Platform=ARM64`でビルドし、生成された
+  `OpenInputBridgeSetup-arm64.exe`のPEヘッダのMachine値が`0xAA64`（IMAGE_FILE_MACHINE_ARM64）
+  であることを確認済み。
+  - なお、このマシンで素の`msbuild`から直接ビルドした際、複数バージョンのMSVC
+    ツールセットが混在しており、既定で選択されるバージョンにARM64向けクロス
+    コンパイラ（`Hostx64\arm64\cl.exe`）が含まれていなかったため、
+    `/p:VCToolsVersion=<ARM64ツール入りバージョン>`を明示指定してビルドを確認する
+    一幕があった（`LNK1112`: "モジュールのコンピューターの種類 'x86' は対象
+    コンピューターの種類 'ARM64' と競合しています"）。この点は、ユーザーの実際の
+    ビルド手順（`_VS2022WDK.cmd`でEWDK環境をセットアップしてから`devenv`を起動）が
+    `VCToolsVersion=14.44.35207`（ARM64クロスコンパイラを含むバージョン）を
+    明示的に固定していることを確認しており、問題にならないことを確認済み。
+- **`packaging/sign.mak`**: `TARGET_BIN_ARM64`（`..\installer\ARM64\Release\OpenInputBridgeSetup-arm64.exe`）を追加し、`sign-bin`/`sign-all`/`verify`/`stage-bin`の各ターゲットで
+  `TARGET_BIN`（x64）と並行して扱うようにした。配布zip直下に`OpenInputBridgeSetup.exe`と
+  `OpenInputBridgeSetup-arm64.exe`がフラットに同居する。
+- **`packaging/setup.bat`**: `[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture`
+  （このプロセス自身のアーキテクチャではなく実機のOSアーキテクチャを返す）でホストが
+  ARM64かどうかを判定し、`OIB_EXE`変数に`OpenInputBridgeSetup.exe`または
+  `OpenInputBridgeSetup-arm64.exe`を設定して、以降のすべての呼び出しをこの変数経由に
+  変更した。
+- **`OpenInputBridge.sln`**: `Packaging`プロジェクトの`ProjectDependencies`に
+  `OpenInputBridgeSetup_arm64`を追加。
+- `README.md`のアーキテクチャ概要・インストール・ビルド方法の各節を、インストーラも
+  ARM64ネイティブビルドが必須である旨に合わせて更新（トーストヘルパー
+  `OibToastHelper.exe`はSetupAPIのドライバインストールAPIを呼ばないためx64のままで
+  問題ない）。
+- `installer/toastsetup.cpp`・`installer/auditlog.cpp`・`installer/verify.cpp`は
+  変更していない。これらが使うAPI（レジストリ・タスクスケジューラ・トースト通知の
+  各Win32/COM API）はSetupAPIのドライバインストール系エントリポイントではなく、
+  ARM64エミュレーション下でも実機で正常動作を確認済み。

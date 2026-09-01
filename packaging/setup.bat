@@ -28,6 +28,20 @@ if not "%OIB_VERCHECK%"=="OK" (
     exit /b 1
 )
 
+rem Driver installation (SetupInstallServicesFromInfSectionW, called from install.cpp) refuses to
+rem run from a process that isn't native to the host CPU architecture (ERROR_IN_WOW64) — an x64
+rem OpenInputBridgeSetup.exe running under Windows' x64-on-ARM64 emulation cannot complete
+rem installation on an ARM64 host, confirmed on real hardware (see docs/DECISIONS.md's ARM64
+rem entry). [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture reports the
+rem actual OS architecture regardless of this script's own (possibly emulated) process
+rem architecture, unlike %PROCESSOR_ARCHITECTURE%.
+for /f %%A in ('powershell -NoProfile -Command "[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture"') do set OIB_OSARCH=%%A
+if "%OIB_OSARCH%"=="Arm64" (
+    set OIB_EXE=OpenInputBridgeSetup-arm64.exe
+) else (
+    set OIB_EXE=OpenInputBridgeSetup.exe
+)
+
 net session >nul 2>&1
 if %errorLevel% neq 0 (
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
@@ -37,19 +51,19 @@ if %errorLevel% neq 0 (
 cd /d "%~dp0"
 
 echo Installing OpenInputBridge...
-OpenInputBridgeSetup.exe
+%OIB_EXE%
 
 echo.
 echo Enabling audit-log (Security event log auditing of control device access)...
-OpenInputBridgeSetup.exe --enable-audit-log
+%OIB_EXE% --enable-audit-log
 
 echo.
 echo Enabling toast notifications...
-OpenInputBridgeSetup.exe --enable-toast
+%OIB_EXE% --enable-toast
 
 echo.
 echo Verifying installation...
-OpenInputBridgeSetup.exe --verify-install
+%OIB_EXE% --verify-install
 
 echo.
 echo Done. A reboot is required before the driver and the audit-log SACL take effect.

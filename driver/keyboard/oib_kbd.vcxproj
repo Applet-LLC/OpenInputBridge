@@ -6,8 +6,9 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
 
 Structure adapted from Microsoft's public kbfiltr sample project file
 (microsoft/Windows-driver-samples, input/kbfiltr/sys/kbfiltr.vcxproj) — see docs/CLEAN_ROOM.md.
-x64 only for now (matches the EWDK "amd64" build environment currently in use); ARM64 can be
-added later following the same sample's pattern.
+x64 build. The ARM64 build is oib_kbd_arm64.vcxproj, a separate project in this same directory
+that references these same source files by relative path rather than duplicating them — see its
+own header comment.
 
 Keyboard half of the former single-binary OpenInputBridge.sys (see docs/DECISIONS.md's
 2026-07-30 entry): compiles the shared driver/common sources (driver.c/ioctl.c/slots.c,

@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Native ARM64 build of the installer, producing OpenInputBridgeSetup-arm64.exe. This is NOT
+optional the way the driver's x64-vs-ARM64 split might look at first: SetupInstallServicesFromInfSectionW
+(install.cpp) — and, per Microsoft's documented SetupAPI behavior, several sibling
+driver-install entry points — refuse to run from a process that is not native to the host
+architecture, returning ERROR_IN_WOW64. DiInstallDriverW alone does not hit this (confirmed on
+real ARM64 hardware: it stages into the Driver Store fine even from an emulated x64 process),
+but the very next step (creating the service) does, so an emulated x64 OpenInputBridgeSetup.exe
+cannot complete installation on an ARM64 host — see docs/DECISIONS.md's ARM64 entry for the
+full diagnosis. Everything else in this codebase (registry edits, Scheduled Tasks, toast/COM
+APIs) works fine under emulation; only the driver-install path actually requires this.
+
+Deliberately a separate project file rather than an additional Platform inside
+OpenInputBridgeSetup.vcxproj, mirroring driver/keyboard/oib_kbd_arm64.vcxproj's approach: it
+lives in this same installer/ directory and every ClCompile/ClInclude item below references the
+exact same source files OpenInputBridgeSetup.vcxproj does, by the same relative paths — this
+project shares source by reference, it does not copy it. Wired into OpenInputBridge.sln with
+ONLY an ARM64 project configuration, mapped from every existing (x64) solution configuration via
+Configuration Manager, so a single ordinary solution build produces both
+installer/x64/$(Configuration)/OpenInputBridgeSetup.exe and
+installer/ARM64/$(Configuration)/OpenInputBridgeSetup-arm64.exe in the same pass. The two ship
+side by side, flat, in the same distribution zip (distinct TargetName, since — unlike the driver
+packages — there is no per-architecture subfolder for the installer exe); setup.bat picks the
+one matching the host's native architecture.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{49F34098-B2F2-4506-ADCB-F1AB14CD5DF8}</ProjectGuid>
+    <RootNamespace>OpenInputBridgeSetup_arm64</RootNamespace>
+    <!--
+      Deliberately not setting WindowsTargetPlatformVersion here: see
+      OpenInputBridgeSetup.vcxproj's identical comment (EWDK's -winsdk=none build environment).
+    -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">ARM64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- $(MSBuildProjectDirectory)-relative, not $(SolutionDir)-relative — see
+         OpenInputBridgeSetup.vcxproj; packaging/sign.mak hardcodes
+         ..\installer\ARM64\$(Configuration)\ as this project's output location. -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <!-- Distinct from OpenInputBridgeSetup.vcxproj's TargetName: the two exes ship flat, side
+         by side, in the same distribution zip (see this file's header comment), so they need
+         different file names rather than a per-architecture subfolder. -->
+    <TargetName>OpenInputBridgeSetup-arm64</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
+    <!-- \arm64, not \x64 — see OpenInputBridgeSetup.vcxproj's LibraryPath for why this can't
+         rely on Microsoft.Cpp.props' usual SDK auto-detection under the EWDK's -winsdk=none
+         build environment. -->
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\arm64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\arm64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <SDLCheck>true</SDLCheck>
+      <!-- Source files are UTF-8 (no BOM) — see driver/keyboard/oib_kbd.vcxproj's equivalent
+           note for why this matters under a non-UTF-8 system code page. -->
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <!-- Static CRT: this exe is handed to end users standalone (unzipped next to the driver
+           package), and requiring a separately-installed VC++ Redistributable just to run an
+           installer is an avoidable extra step for them. -->
+      <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- Installing/removing a service and editing HKLM\SYSTEM\...\Class\{GUID}\UpperFilters
+           both require elevation; fail fast via the UAC prompt instead of failing partway
+           through with ERROR_ACCESS_DENIED (see common.cpp's IsRunningElevated check, which
+           still runs as defense in depth if this manifest is ever bypassed). -->
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="install.cpp" />
+    <ClCompile Include="uninstall.cpp" />
+    <ClCompile Include="common.cpp" />
+    <ClCompile Include="auditlog.cpp" />
+    <ClCompile Include="toastsetup.cpp" />
+    <ClCompile Include="verify.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="common.h" />
+    <ClInclude Include="auditlog.h" />
+    <ClInclude Include="toastsetup.h" />
+    <ClInclude Include="verify.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

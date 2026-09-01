@@ -88,10 +88,13 @@ bool IsRunningElevated();
 
 // True if this machine's *native* OS (not this process's own architecture, which matters since
 // an x64 process can run under emulation on ARM64 — GetNativeSystemInfo reports the real one)
-// is x64, and its build number is at least 22000 (Windows 11, original release). Windows 10 is
-// NOT supported, even recent builds of it (e.g. 22H2/build 19045): the driver has only ever
-// been built/tested against Windows 11, and installing this filter driver on Windows 10 has
-// been confirmed (see the 2026-09-01 entry in docs/DECISIONS.md, filed from
+// is x64 or ARM64 (driver/keyboard/oib_kbd_arm64.vcxproj, driver/mouse/oib_mou_arm64.vcxproj —
+// the ARM64 .sys is native; OpenInputBridgeSetup.exe itself stays x64-only and simply runs
+// under Windows' own x64 emulation on an ARM64 host, same as any other x64 user-mode app), and
+// its build number is at least 22000 (Windows 11, original release). Windows 10 is NOT
+// supported, even recent builds of it (e.g. 22H2/build 19045): the driver has only ever been
+// built/tested against Windows 11, and installing this filter driver on Windows 10 has been
+// confirmed (see the 2026-09-01 entry in docs/DECISIONS.md, filed from
 // https://github.com/Applet-LLC/OpenInputBridge/issues/4) to leave the keyboard and mouse
 // completely unusable after reboot -- not just "maybe works". A kernel driver for a Windows
 // version/architecture combination it was never built or tested against can BSOD or silently
@@ -99,6 +102,14 @@ bool IsRunningElevated();
 // --skip-version-check exists for the Pro/Subscription installers' own use, in case their own
 // MSI's CustomAction sequence needs to bypass this).
 bool IsSupportedWindowsEnvironment();
+
+// True if this machine's *native* processor architecture (same GetNativeSystemInfo-based check
+// as IsSupportedWindowsEnvironment(), which is what gates this machine being supported at all)
+// is ARM64, as opposed to x64. Used by install.cpp/uninstall.cpp to pick the ARM64 vs x64
+// driver package subfolder (<exeDir>\<PackageName>\arm64\ vs \x64\ — see packaging/sign.mak's
+// distribution layout comment) and INF services section (DefaultInstall.NTarm64.Services vs
+// DefaultInstall.NTamd64.Services).
+bool IsNativeArm64();
 
 // Classifies a driver catalog (.cat) file's Authenticode signature into what it takes to
 // actually load on this machine:
