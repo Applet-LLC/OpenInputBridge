@@ -55,6 +55,19 @@ TestCert.*
 Thumbs.db
 .DS_Store
 *.swp
+.vscode/
+
+# Driver Verifier / static code analysis output
+DvlErrLog.txt
+*.sarif
+*.DVL.XML
+
+# rc.exe leftover temp files (interrupted resource compile)
+RC[0-9A-Fa-f]*
+
+# Personal notes / scratch files, not project documentation
+packaging/howtomake.txt
+テストmemo.txt
 
 # Local AI-assistant session recording (conversation transcripts, not project source)
 .specstory/
