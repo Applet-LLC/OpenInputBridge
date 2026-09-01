@@ -1,0 +1,19 @@
+Windows Registry Editor Version 5.00
+
+; Renames OpenInputBridge's control devices from \\.\interceptionNN to \\.\oibNN, so both
+; oib_kbd.sys/oib_mou.sys and the real Interception driver can be installed side by side without
+; \Device\interceptionNN / \DosDevices\interceptionNN name collisions (see
+; driver/common/driver.c's OibReadConfiguredDeviceNameBase and driver/common/driver.h's
+; OIB_DEVICE_NAME_BASE_VALUE_NAME comment).
+;
+; Takes effect the next time each driver's DriverEntry runs (the value is read once at driver
+; load, not per device arrival) -- reboot after importing this, or after each install/reinstall.
+;
+; To revert to the default "interception" naming, either delete the DeviceNameBase value under
+; both keys below (regedit or `reg delete`), or import a .reg that sets it back to "interception".
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\OpenInputBridgeKeyboard\Parameters]
+"DeviceNameBase"="oib"
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\OpenInputBridgeMouse\Parameters]
+"DeviceNameBase"="oib"

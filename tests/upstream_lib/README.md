@@ -87,6 +87,35 @@ cd tests\upstream_lib\x64\Release
 identify2.exe
 ```
 
+## `identify3`（生プロトコル版、`DeviceNameBase`変更後のコントロールデバイス確認用）
+
+`identify3.cpp`（`tests/upstream_lib/identify3.cpp`、自作・MITライセンス）は、`identify2`と
+同じ用途の詳細出力版だが、`interception.dll`/`interception.h`を一切使わない。
+
+`third_party/interception/library/interception.c`の`interception_create_context()`は、開く
+コントロールデバイス名`"\\.\interceptionNN"`のベース部分`"interception"`を関数内に直接
+埋め込んでおり（`device_name`バッファへの`sprintf`は末尾2桁の数字部分にしか触れない）、外部から
+差し替える手段がない。そのため、`driver/common/driver.h`の`DeviceNameBase`レジストリ値
+（[docs/COEXISTENCE.md](../../docs/COEXISTENCE.md)、[tests/device_name_base_oib.reg](../device_name_base_oib.reg)参照）で
+ベース名を`"oib"`等に変更した場合、無改変の`interception.dll`を使う`identify`/`identify2`他は
+その変更後のデバイスを開けない。かといって`interception.c`自体を書き換えるのは、本リポジトリの
+クリーンルーム/vendoring方針（[docs/CLEAN_ROOM.md](../../docs/CLEAN_ROOM.md)）に反する。
+
+`identify3`はこの制約を回避するため、`\\.\<base>NN`に対して`CreateFileA`+`DeviceIoControl`を
+直接発行し、[docs/PROTOCOL.md](../../docs/PROTOCOL.md)に記載のワイヤプロトコル
+（`IOCTL_SET_EVENT`/`IOCTL_SET_FILTER`/`IOCTL_READ`/`IOCTL_WRITE`、標準NT DDK構造体の
+`KEYBOARD_INPUT_DATA`/`MOUSE_INPUT_DATA`）を直接話す。起動時に`IOCTL_GET_DRIVER_IDENTITY`で
+実際にOpenInputBridgeと通信できているかも表示する。
+
+`Identify3Sample.vcxproj`でビルドされ、出力先は`identify`/`identify2`と同じ
+（`tests\upstream_lib\x64\Release\identify3.exe`）。`identify2`と異なりベース名を
+コマンドライン引数で受け取る（省略時は既定値`"interception"`）。
+
+```bat
+cd tests\upstream_lib\x64\Release
+identify3.exe oib
+```
+
 ## `hardwareid`（M2: `IOCTL_GET_HARDWARE_ID`のスモークテスト）
 
 無改変の`samples/hardwareid/hardwareid.cpp`を`HardwareIdSample.vcxproj`でビルドしたもの

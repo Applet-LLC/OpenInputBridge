@@ -11,5 +11,5 @@
 #pragma once
 
 #define OIB_VERSION_MAJOR  1
-#define OIB_VERSION_MINOR  0
-#define OIB_VERSION_STRING "1.00"
+#define OIB_VERSION_MINOR  1
+#define OIB_VERSION_STRING "1.01"

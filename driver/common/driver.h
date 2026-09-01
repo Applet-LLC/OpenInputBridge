@@ -27,6 +27,27 @@
 // about where the boundary is as long as the installer keeps both copies in sync (installer/).
 #define OIB_KEYBOARD_SLOT_COUNT_VALUE_NAME L"KeyboardSlotCount"
 
+// REG_SZ under this service's own \Parameters key, overriding the "interception" in
+// \Device\interceptionNN / \DosDevices\interceptionNN with a caller-chosen base name (still
+// followed by the same 2-digit slot number). Purely opt-in: absent, empty, too long, or
+// containing anything outside [A-Za-z0-9_-] all fall back to OIB_DEFAULT_DEVICE_NAME_BASE, i.e.
+// today's fixed names. Exists so this driver's control devices can be renamed to coexist
+// side by side with the real Interception driver for evaluation (same device slot must still
+// not be opened from both at once — see docs/COEXISTENCE.md for why two kbfiltr-type filters
+// racing to capture the same physical keystroke is unsupported regardless of naming).
+#define OIB_DEVICE_NAME_BASE_VALUE_NAME L"DeviceNameBase"
+#define OIB_DEFAULT_DEVICE_NAME_BASE L"interception"
+
+// Longest base name OibReadConfiguredDeviceNameBase will accept from the registry (arbitrary
+// but generous — real device/symlink object names have no practical length limit anywhere near
+// this).
+#define OIB_DEVICE_NAME_BASE_MAX_CHARS 32
+
+// Longest \Device\<base>NN / \DosDevices\<base>NN name OibCreateControlDevices can produce,
+// including the NUL: the longer "\DosDevices\" prefix + the configured base name + the 2-digit
+// slot number + NUL.
+#define OIB_DEVICE_OR_SYMLINK_NAME_MAX_CHARS (12 + OIB_DEVICE_NAME_BASE_MAX_CHARS + 2 + 1)
+
 // This header is shared, unmodified, between the oib_kbd.vcxproj and oib_mou.vcxproj projects
 // (see docs/DECISIONS.md's 2026-07-30 entry on why the single-binary/Class=System driver was
 // split in two): each project defines exactly one of OIB_BUILD_KEYBOARD/OIB_BUILD_MOUSE
@@ -65,9 +86,16 @@ DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD OibEvtDeviceAdd;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP OibEvtDriverContextCleanup;
 
-// Creates this binary's ActiveSlotCount always-present control devices (\Device\interceptionNN +
-// \DosDevices\interceptionNN symbolic links, NN = index + DeviceNumberBase) at driver load
-// time. Must succeed unconditionally, independent of how many physical keyboards/mice are
-// attached, because the unmodified upstream interception_create_context() fails if any of the
-// 20 CreateFileA calls (across both binaries) fails.
-NTSTATUS OibCreateControlDevices(_In_ WDFDRIVER Driver, _In_ ULONG ActiveSlotCount, _In_ ULONG DeviceNumberBase);
+// Creates this binary's ActiveSlotCount always-present control devices (\Device\<DeviceNameBase>NN +
+// \DosDevices\<DeviceNameBase>NN symbolic links, NN = index + DeviceNumberBase) at driver load
+// time. DeviceNameBase is normally OIB_DEFAULT_DEVICE_NAME_BASE — see
+// OIB_DEVICE_NAME_BASE_VALUE_NAME above for how a caller overrides it. Must succeed
+// unconditionally, independent of how many physical keyboards/mice are attached, because the
+// unmodified upstream interception_create_context() fails if any of the 20 CreateFileA calls
+// (across both binaries) fails.
+NTSTATUS OibCreateControlDevices(
+    _In_ WDFDRIVER Driver,
+    _In_ ULONG ActiveSlotCount,
+    _In_ ULONG DeviceNumberBase,
+    _In_ PCWSTR DeviceNameBase
+    );

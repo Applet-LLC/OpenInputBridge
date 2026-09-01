@@ -78,6 +78,80 @@ OibReadConfiguredKeyboardSlotCount(
     return value;
 }
 
+// True for exactly the characters OibReadConfiguredDeviceNameBase accepts in a configured base
+// name: plain ASCII alnum plus '_'/'-'. Deliberately excludes '\\' and anything else that could
+// change the shape of the \Device\<base>NN / \DosDevices\<base>NN names built from it (e.g. an
+// embedded path separator turning one path component into several).
+static
+BOOLEAN
+OibIsValidDeviceNameBaseChar(
+    _In_ WCHAR Character
+    )
+{
+    return (Character >= L'0' && Character <= L'9') ||
+        (Character >= L'A' && Character <= L'Z') ||
+        (Character >= L'a' && Character <= L'z') ||
+        Character == L'_' ||
+        Character == L'-';
+}
+
+// Reads OIB_DEVICE_NAME_BASE_VALUE_NAME (REG_SZ) from this service's own \Parameters key, for
+// renaming \Device\interceptionNN / \DosDevices\interceptionNN to \Device\<base>NN /
+// \DosDevices\<base>NN (see driver.h). Always leaves DeviceNameBase holding a valid,
+// NUL-terminated name: falls back to OIB_DEFAULT_DEVICE_NAME_BASE if the key/value is absent,
+// unreadable, empty, longer than OIB_DEVICE_NAME_BASE_MAX_CHARS, or contains any character
+// OibIsValidDeviceNameBaseChar rejects — this is what makes the feature purely opt-in.
+static
+VOID
+OibReadConfiguredDeviceNameBase(
+    _In_ WDFDRIVER Driver,
+    _Out_writes_z_(OIB_DEVICE_NAME_BASE_MAX_CHARS + 1) PWCHAR DeviceNameBase
+    )
+{
+    NTSTATUS status;
+    WDFKEY parametersKey;
+    DECLARE_CONST_UNICODE_STRING(valueName, OIB_DEVICE_NAME_BASE_VALUE_NAME);
+    WCHAR rawBuffer[OIB_DEVICE_NAME_BASE_MAX_CHARS + 1];
+    UNICODE_STRING rawValue;
+    ULONG charCount;
+    ULONG i;
+    BOOLEAN valid;
+
+    RtlInitEmptyUnicodeString(&rawValue, rawBuffer, sizeof(rawBuffer));
+
+    status = WdfDriverOpenParametersRegistryKey(
+        Driver, KEY_QUERY_VALUE, WDF_NO_OBJECT_ATTRIBUTES, &parametersKey
+        );
+    if (NT_SUCCESS(status)) {
+        status = WdfRegistryQueryUnicodeString(parametersKey, &valueName, NULL, &rawValue);
+        WdfRegistryClose(parametersKey);
+    }
+
+    if (NT_SUCCESS(status)) {
+        charCount = (ULONG)(rawValue.Length / sizeof(WCHAR));
+        // Some REG_SZ writers include the terminating NUL in the value's byte length; drop it
+        // from the count so the validation loop below doesn't see a spurious NUL character.
+        if (charCount > 0 && rawBuffer[charCount - 1] == L'\0') {
+            charCount--;
+        }
+
+        valid = (charCount > 0) && (charCount <= OIB_DEVICE_NAME_BASE_MAX_CHARS);
+        for (i = 0; valid && i < charCount; i++) {
+            valid = OibIsValidDeviceNameBaseChar(rawBuffer[i]);
+        }
+
+        if (valid) {
+            RtlCopyMemory(DeviceNameBase, rawBuffer, charCount * sizeof(WCHAR));
+            DeviceNameBase[charCount] = L'\0';
+            return;
+        }
+    }
+
+    RtlCopyMemory(
+        DeviceNameBase, OIB_DEFAULT_DEVICE_NAME_BASE, sizeof(OIB_DEFAULT_DEVICE_NAME_BASE)
+        );
+}
+
 NTSTATUS
 DriverEntry(
     _In_ PDRIVER_OBJECT DriverObject,
@@ -91,6 +165,7 @@ DriverEntry(
     ULONG keyboardSlotCount;
     ULONG activeSlotCount;
     ULONG deviceNumberBase;
+    WCHAR deviceNameBase[OIB_DEVICE_NAME_BASE_MAX_CHARS + 1];
 
     WDF_DRIVER_CONFIG_INIT(&config, OibEvtDeviceAdd);
 
@@ -112,6 +187,7 @@ DriverEntry(
     // Resolve this binary's own share of the 20 slots (see docs/DECISIONS.md's 2026-08-02
     // entry) before touching the slot table or creating any control device.
     keyboardSlotCount = OibReadConfiguredKeyboardSlotCount(driver);
+    OibReadConfiguredDeviceNameBase(driver, deviceNameBase);
 #if defined(OIB_BUILD_KEYBOARD)
     activeSlotCount = keyboardSlotCount;
     deviceNumberBase = 0;
@@ -131,7 +207,7 @@ DriverEntry(
     // Create all of this binary's ActiveSlotCount control devices unconditionally before
     // DriverEntry returns (see OibCreateControlDevices for why partial success is not
     // acceptable here).
-    status = OibCreateControlDevices(driver, activeSlotCount, deviceNumberBase);
+    status = OibCreateControlDevices(driver, activeSlotCount, deviceNumberBase, deviceNameBase);
 
     return status;
 }
@@ -199,7 +275,8 @@ NTSTATUS
 OibCreateControlDevices(
     _In_ WDFDRIVER Driver,
     _In_ ULONG ActiveSlotCount,
-    _In_ ULONG DeviceNumberBase
+    _In_ ULONG DeviceNumberBase,
+    _In_ PCWSTR DeviceNameBase
     )
 {
     NTSTATUS status;
@@ -223,15 +300,16 @@ OibCreateControlDevices(
         WDF_IO_QUEUE_CONFIG queueConfig;
         WDFDEVICE controlDevice;
         POIB_CONTROL_DEVICE_CONTEXT context;
-        WCHAR deviceNameBuffer[sizeof(L"\\Device\\interception99")];
-        WCHAR symlinkNameBuffer[sizeof(L"\\DosDevices\\interception99")];
+        WCHAR deviceNameBuffer[OIB_DEVICE_OR_SYMLINK_NAME_MAX_CHARS];
+        WCHAR symlinkNameBuffer[OIB_DEVICE_OR_SYMLINK_NAME_MAX_CHARS];
         UNICODE_STRING deviceName;
         UNICODE_STRING symlinkName;
 
         status = RtlStringCbPrintfW(
             deviceNameBuffer,
             sizeof(deviceNameBuffer),
-            L"\\Device\\interception%02lu",
+            L"\\Device\\%ls%02lu",
+            DeviceNameBase,
             index + DeviceNumberBase
             );
         if (!NT_SUCCESS(status)) {
@@ -286,7 +364,8 @@ OibCreateControlDevices(
         status = RtlStringCbPrintfW(
             symlinkNameBuffer,
             sizeof(symlinkNameBuffer),
-            L"\\DosDevices\\interception%02lu",
+            L"\\DosDevices\\%ls%02lu",
+            DeviceNameBase,
             index + DeviceNumberBase
             );
         if (!NT_SUCCESS(status)) {
