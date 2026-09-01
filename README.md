@@ -76,7 +76,9 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 bcdedit /set TESTSIGNING ON
 ```
 
-なお、セキュアブートやBitLockerを利用されている場合には、それぞれの解除も必要となります。
+なお、セキュアブートやBitLockerを利用されている場合には、BitLockerをWindowsの設定で解除して、
+セキュアブートをBIOS画面で無効にする必要があります。誤って先にセキュアブートを解除すると、
+起動時にBitLockerのキーを求められます。
 WHQL署名済みドライバではこの手順は不要です。
 
 ### `setup.bat`によるインストール手順

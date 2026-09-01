@@ -13,7 +13,7 @@ Requirements
 - Administrator privileges for installation
 - Test signing mode
   Your environment must be configured to allow test-signed device
-  drivers to load. That means Secure Boot and BitLocker must be off,
+  drivers to load. That means BitLocker and Secure Boot must be off,
   and you must run "bcdedit /set TESTSIGNING ON" and then restart.
 
 Installation
