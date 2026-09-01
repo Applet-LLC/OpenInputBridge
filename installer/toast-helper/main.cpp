@@ -121,7 +121,12 @@ ProcessInfo ResolveProcessInfo(const std::wstring& processIdText, const std::wst
     if (!processNameText.empty()) {
         info.fullPath = processNameText;
         info.displayName = std::filesystem::path(processNameText).filename().wstring();
-        info.isOwnInstaller = _wcsicmp(info.displayName.c_str(), L"OpenInputBridgeSetup.exe") == 0;
+        // Both the x64 and native ARM64 installer exe (installer/OpenInputBridgeSetup_arm64.vcxproj)
+        // run this same self-maintenance --apply-audit-sacl pass — see docs/DECISIONS.md's ARM64
+        // entry for why a native ARM64 build exists at all.
+        info.isOwnInstaller =
+            _wcsicmp(info.displayName.c_str(), L"OpenInputBridgeSetup.exe") == 0 ||
+            _wcsicmp(info.displayName.c_str(), L"OpenInputBridgeSetup-arm64.exe") == 0;
         return info;
     }
 

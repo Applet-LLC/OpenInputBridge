@@ -1177,3 +1177,60 @@ UpperFilters登録など、SetupAPIのドライバインストール系エント
   変更していない。これらが使うAPI（レジストリ・タスクスケジューラ・トースト通知の
   各Win32/COM API）はSetupAPIのドライバインストール系エントリポイントではなく、
   ARM64エミュレーション下でも実機で正常動作を確認済み。
+
+### 追記: `isOwnInstaller`自己ノイズ判定がARM64版インストーラ名を認識していなかった
+
+`installer/toast-helper/main.cpp`の`ResolveProcessInfo`内、`OpenInputBridgeSetup.exe`自身の
+`--apply-audit-sacl`（起動時の毎回のSACL再適用）を「自分自身のルーチン処理」として
+トースト表示を抑制する`isOwnInstaller`判定が、`OpenInputBridgeSetup.exe`という固定文字列
+比較のみだったため、ARM64版（`OpenInputBridgeSetup-arm64.exe`）からの同じ処理を自分自身と
+認識できていなかった。結果として、ARM64ホストでは起動のたびに最大20個（スロット数分）の
+無意味なトーストが表示される回帰が起きるところだった。`OpenInputBridgeSetup-arm64.exe`も
+比較対象に追加して修正。
+
+---
+
+## 2026-09-01: OneDrive同期フォルダへのインストールで監査ログ・トースト通知が機能しない
+
+### 症状
+
+ARM64実機で、`C:\Users\<user>\OneDrive\Desktop\OpenInputBridge`（OneDriveで同期される
+デスクトップフォルダ配下）に展開してインストールしたところ、ドライバ自体は正常動作する
+ものの、監査ログ・トースト通知機能が全く動作しなかった。切り分けの結果:
+
+- `OpenInputBridgeSetup-arm64.exe --dump-audit-sacl`で全`\\.\interceptionNN`のSACLが
+  0 ACE（一度も適用されていない）
+- `OpenInputBridgeSetup-arm64.exe --apply-audit-sacl`を**手動**で実行すると正常にSACLが
+  適用され、以降トーストも正常に表示される
+- タスクスケジューラの`OpenInputBridgeAuditLogReapply`タスク（起動時にSYSTEM権限で
+  `--apply-audit-sacl`を自動実行する、`installer/auditlog.cpp`の`BuildReapplyTaskXml`が
+  登録するBootTriggerタスク）の実行履歴が存在しない — すなわち、このタスクが
+  自動的には一度も実行されていない
+
+インストール先をOneDrive同期対象外のローカルフォルダ（例: `C:\OpenInputBridge`）に
+変更してアンインストール→再インストール→再起動したところ、`OpenInputBridgeAuditLogReapply`
+が正常に起動時実行され、`identify3.exe`を起動しただけでトーストが即座に表示されることを
+確認した。
+
+### 原因（推定）
+
+`OpenInputBridgeAuditLogReapply`はSYSTEM権限・BootTrigger（起動時、ユーザーのサインイン
+セッションが確立する前）で、`GetInstallerExecutablePath()`が記録したインストーラexeの
+フルパスを直接実行する。OneDriveのFiles On-Demand機能により、インストーラexeがクラウド
+専用のプレースホルダーファイルとして扱われている場合、そのファイルの実体（バイト列）を
+ハイドレートするにはOneDrive同期エンジン（ユーザーのサインインセッション内で動作し、
+そのユーザーの認証情報を必要とする）が必要となるため、ユーザーセッションが存在しない
+起動直後のSYSTEMコンテキストではファイルの実体にアクセスできず、タスクの実行自体が
+（履歴にすら残らない形で）失敗していると考えられる。この現象自体はARM64固有ではなく、
+x64環境でも同じ条件（OneDrive同期フォルダへのインストール）であれば起こり得ると考えられる
+（今回たまたまARM64の実機検証中に見つかったのみで、この不具合そのものはアーキテクチャに
+依存しないインストール先の問題）。
+
+### 対応
+
+- `README.md`のトースト通知・監査ログ節に、OneDriveなどクラウド同期フォルダの配下には
+  展開しないよう明記（既存の「展開先を移動・削除しないでください」という注意と合わせて）。
+- `packaging/dist-readme/README.ja-JP.txt`・`README.en-US.txt`（配布zipに同梱される
+  エンドユーザー向けインストールガイド）のインストール手順にも同様の注意書きを追加。
+- インストーラ側での自動検知（インストール先がOneDrive等のクラウド同期フォルダ配下かを
+  判定し警告する）は今回実装していない — 現時点ではドキュメントでの注意喚起のみ。

@@ -21,6 +21,14 @@ Installation
 1. Run "setup.bat".
 2. A system reboot is required to complete installation.
 
+IMPORTANT: Where you extract this zip
+This zip installs in place -- wherever you extract it becomes the install
+location. Do not move or delete this folder after installing. Also, do not
+extract it under a folder synced by OneDrive (including a "Desktop" folder
+that is set to sync). We've confirmed on real hardware that this breaks the
+audit-log/toast-notification feature. We recommend extracting to a plain
+local folder that isn't synced, such as "C:\OpenInputBridge".
+
 Files in this package
 ----------------------
 - setup.bat
