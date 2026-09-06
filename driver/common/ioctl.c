@@ -566,7 +566,7 @@ OibCtlHandleSetEvent(
         handles[0],
         EVENT_MODIFY_STATE,
         *ExEventObjectType,
-        KernelMode,
+        UserMode,
         (PVOID *)&eventObject,
         NULL
         );
