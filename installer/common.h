@@ -138,6 +138,19 @@ DriverSignatureLevel GetDriverSignatureLevel(const std::wstring& catalogPath);
 // parsing its own, locale-dependent text output.
 bool IsTestSigningEnabled();
 
+// True if Smart App Control (SAC) is currently On or in Evaluation mode -- both states enforce
+// SAC's own code-integrity policy (Microsoft-signed/WHQL-attested binaries only), independently
+// of IsTestSigningEnabled() above: a NonWhql driver can satisfy the kernel's own basic signature
+// check under test-signing mode and still be blocked from loading by SAC. Confirmed against a
+// real ARM64 Windows 11 target: Device Manager showed Code 39 ("this operation was blocked by
+// application control policy"), and Applications and Services Logs > Microsoft > Windows >
+// CodeIntegrity > Operational logged event IDs 3077/3004 for the blocked .sys files -- see
+// README.md's install prerequisites section. Read directly from
+// HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy's VerifiedAndReputablePolicyState REG_DWORD
+// (0 = off, 1 = on, 2 = evaluation mode); a missing key/value (pre-SAC Windows versions, or SAC
+// never touched on this machine) is treated as off.
+bool IsSmartAppControlEnabled();
+
 // True if a service named serviceName is currently registered with the SCM (regardless of
 // its running state).
 bool ServiceExists(const wchar_t* serviceName);

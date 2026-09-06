@@ -193,6 +193,19 @@ int RunInstallOne(const DriverInfo& driver, DriverType type, std::optional<ULONG
             );
         return 1;
     }
+    if (signatureLevel == DriverSignatureLevel::NonWhql && IsSmartAppControlEnabled()) {
+        wprintf(
+            L"[ERROR] %s.cat is signed, but not WHQL-certified, and Smart App Control is "
+            L"currently On or in Evaluation mode -- this driver would stage and register "
+            L"successfully but then fail to load (Device Manager Code 39, CodeIntegrity event "
+            L"3077/3004) once installed. Turn Smart App Control off (Settings > Privacy & "
+            L"security > Windows Security > App & browser control > Smart App Control -- this "
+            L"cannot be turned back on without reinstalling/resetting Windows) and reboot "
+            L"before installing (not needed for a WHQL-signed release).\n",
+            driver.PackageName
+            );
+        return 1;
+    }
 
     BOOL needReboot = FALSE;
 

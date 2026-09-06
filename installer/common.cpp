@@ -186,6 +186,32 @@ bool IsTestSigningEnabled()
     return status >= 0 && (info.CodeIntegrityOptions & kCodeIntegrityOptionTestSign) != 0;
 }
 
+bool IsSmartAppControlEnabled()
+{
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\CI\\Policy", 0,
+            KEY_QUERY_VALUE, &key
+            ) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    DWORD type = 0;
+    LONG result = RegQueryValueExW(
+        key, L"VerifiedAndReputablePolicyState", nullptr, &type,
+        reinterpret_cast<BYTE*>(&value), &size
+        );
+
+    RegCloseKey(key);
+
+    // 0 = off, 1 = on, 2 = evaluation mode. Both 1 and 2 enforce the policy (evaluation mode
+    // still blocks loading, it just also logs what audit mode would have allowed) -- see
+    // common.h.
+    return result == ERROR_SUCCESS && type == REG_DWORD && value != 0;
+}
+
 bool ServiceExists(const wchar_t* serviceName)
 {
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
