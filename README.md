@@ -60,14 +60,14 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 
 ソースコードは誰でも自由に読む・改変する・自分でビルドして使うことができます。一方で、Windowsカーネルドライバとして一般利用者が手軽に・安全に導入できる**WHQL署名をつけたデバイスドライバ**は、証明書取得・認定・継続的なサポートのコストを賄うため有償で提供します。なお本プロジェクトでは、セルフビルド版バイナリは提供していません。
 
-また `third_party/interception/` に取り込んでいるoblitum/Interceptionのユーザーモードライブラリ（`interception.c` / `interception.h`）は、無改変のまま元のLGPLライセンスを維持しています。
+また `third_party/interception/` に取り込んでいるoblitum/Interceptionのユーザーモードライブラリ（`interception.c` / `interception.h`）は、無改変のまま元のLGPL-3.0ライセンスを維持しています。EV署名済みの`interception.dll`（配布zipの`redist\`に同梱、下記参照）は、[Applet-LLC/Interception](https://github.com/Applet-LLC/Interception)（oblitum/Interceptionの公開fork、内容は無改変）でビルドしたものです。
 
 ## インストール
 
 ソリューションの`Packaging`プロジェクトをbuildして作られたzip（`OpenInputBridge.zip`）を展開すると、`oib_kbd\`・`oib_mou\`（それぞれ`x64\`・`arm64\`サブフォルダの下に`.inf`/`.cat`/`.sys`）と
 `OpenInputBridgeSetup.exe`（x64）・`OpenInputBridgeSetup-arm64.exe`（ARM64）・`setup.bat` が含まれています。`setup.bat`はホストのアーキテクチャに応じてどちらの`OpenInputBridgeSetup*.exe`を使うか自動で判定します。
 
-**注意**: このzipにはドライバ本体とインストーラのみが含まれ、クライアント側の`interception.dll`は配布していません。Interception互換の既存アプリを動かすには、[oblitum/Interception](https://github.com/oblitum/Interception)のLGPL公開ライブラリから別途`interception.dll`を入手してください（本リポジトリの`third_party/interception/`はこのライブラリのソースを無改変で取り込んだもので、interception.dllはbuild可能です。また、[`tests/upstream_lib/`](tests/upstream_lib/)が実際にこの方法でビルドしています）。
+**クライアント側`interception.dll`について**: このzipには、便宜上`redist\x64\interception.dll` / `redist\arm64\interception.dll`として、EV署名済みのInterception互換クライアントライブラリを同梱しています(ドライバ本体・インストーラー自体はこのDLLを一切ロード・検証しません。単なる同梱物です)。ビルド元は[Applet-LLC/Interception](https://github.com/Applet-LLC/Interception)(oblitum/Interceptionの公開fork、ライブラリ本体は無改変)で、ライセンスはLGPL-3.0です。詳細・全文ライセンスは同梱の`redist\THIRD-PARTY-NOTICES.txt`/`redist\LGPL-3.0.txt`を参照してください。ご自身でビルドしたものに差し替えることも自由です（本リポジトリの`third_party/interception/`はこのライブラリのソースを無改変で取り込んだもので、interception.dllはbuild可能です。また、[`tests/upstream_lib/`](tests/upstream_lib/)が実際にこの方法でビルドしています）。
 
 **事前準備(テスト署名/EV署名の場合)**: ドライバの署名がテスト署名、または（WHQL取得前の）EV署名の場合は、
 インストール前に管理者権限のコマンドプロンプトで以下を実行し、再起動しておいてください。
@@ -331,4 +331,4 @@ MIT Licenseにもありますが、本ソフトウェアのソースコード、
 
 ## License
 
-自作部分は [MIT License](LICENSE) です。`third_party/interception/` 配下は oblitum/Interceptionライブラリ の LGPL に従います。
+自作部分は [MIT License](LICENSE) です。`third_party/interception/` 配下は oblitum/Interceptionライブラリ の LGPL-3.0 に従います。配布zipに同梱している`redist\interception.dll`(x64/ARM64)も同じくLGPL-3.0で、[Applet-LLC/Interception](https://github.com/Applet-LLC/Interception)(oblitum/Interceptionの公開fork)からビルドしたものです。詳細は同梱の`redist\THIRD-PARTY-NOTICES.txt`を参照してください。

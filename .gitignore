@@ -46,6 +46,7 @@ BuildLog.htm
 *.zip
 packaging/Signed/
 packaging/dist/
+packaging/redist/
 
 # Test signing certs (never commit real signing material)
 TestCert.*

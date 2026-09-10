@@ -22,7 +22,19 @@
 #   nmake -f packaging\sign.mak stage      (stage only, no signing)
 #   nmake -f packaging\sign.mak whql       (post-WHQL: sign+stage installer .exe and refresh
 #                                            Symbol\, WITHOUT touching Signed\oib_kbd\/oib_mou\)
-#   nmake -f packaging\sign.mak package    (zip whatever's currently in Signed\ into dist\)
+#   nmake -f packaging\sign.mak stage-redist (OPTIONAL: copy redist\ — populated separately by
+#                                            Update-InterceptionRedist.ps1 from the Applet LLC
+#                                            Interception fork's own signed release, see that
+#                                            script's header comment — into Signed\redist\. Not
+#                                            a dependency of "all"/"stage": interception.dll is
+#                                            a third-party (LGPL-3.0) convenience redistributable
+#                                            built and EV-signed in a separate repository, never
+#                                            by this solution's own build, so contributors
+#                                            without access to that repo can still run "all
+#                                            package" and get a working zip, just without it.)
+#   nmake -f packaging\sign.mak package    (zip whatever's currently in Signed\ into dist\ —
+#                                            this picks up Signed\redist\ automatically if
+#                                            stage-redist was run first)
 #
 # Since docs/DECISIONS.md's 2026-07-30 entry, this ships TWO independent driver packages
 # (oib_kbd.sys/Class=Keyboard and oib_mou.sys/Class=Mouse — see driver/keyboard/, driver/mouse/)
@@ -116,6 +128,10 @@
 #   Symbol\oib_kbd_arm64.pdb
 #   Symbol\oib_mou.pdb
 #   Symbol\oib_mou_arm64.pdb
+#   redist\x64\interception.dll    (OPTIONAL — only if stage-redist was run; see above)
+#   redist\arm64\interception.dll  (OPTIONAL)
+#   redist\THIRD-PARTY-NOTICES.txt (OPTIONAL)
+#   redist\LGPL-3.0.txt            (OPTIONAL)
 
 DRIVER_PACKAGE_DIR_KBD	= ..\driver\keyboard\x64\Release\oib_kbd
 
@@ -231,6 +247,13 @@ SIGNED_DRIVERS_DIR_MOU_ARM64	= $(SIGNED_DIR)\oib_mou\arm64
 
 SIGNED_SYMBOLS_DIR	= $(SIGNED_DIR)\Symbol
 
+# Third-party (LGPL-3.0) redistributable, not built by this solution — see Update-
+# InterceptionRedist.ps1 and stage-redist below. Not a build output like the rest of this file,
+# so there is no TARGET_* variable pointing into a Release build tree for it.
+REDIST_DIR	= redist
+
+SIGNED_REDIST_DIR	= $(SIGNED_DIR)\redist
+
 DIST_DIR	= dist
 
 DIST_ZIP	= $(DIST_DIR)\OpenInputBridge.zip
@@ -338,6 +361,17 @@ stage-symbol:
 		copy /y $(TARGET_PDB_MOU) $(SIGNED_SYMBOLS_DIR)\.
 		copy /y $(TARGET_PDB_MOU_ARM64) $(SIGNED_SYMBOLS_DIR)\oib_mou_arm64.pdb
 		@echo [stage-symbol] copied all four pdbs (keyboard/mouse x x64/ARM64) into $(SIGNED_SYMBOLS_DIR)
+
+# OPTIONAL, not a dependency of "all"/"stage" — see header comment. redist\ is populated by
+# running Update-InterceptionRedist.ps1 separately (pulls from the Applet LLC Interception
+# fork's own build+sign output, a different repository entirely); if it hasn't been, this is a
+# no-op so "all package" still produces a working zip without interception.dll.
+stage-redist:
+		@if not exist $(REDIST_DIR) echo [stage-redist] $(REDIST_DIR)\ not found - skipping (run Update-InterceptionRedist.ps1 first if you want interception.dll in the zip)
+		@if exist $(REDIST_DIR) if not exist $(SIGNED_DIR) mkdir $(SIGNED_DIR)
+		@if exist $(REDIST_DIR) if not exist $(SIGNED_REDIST_DIR) mkdir $(SIGNED_REDIST_DIR)
+		@if exist $(REDIST_DIR) xcopy /y /e /i $(REDIST_DIR) $(SIGNED_REDIST_DIR) >nul
+		@if exist $(REDIST_DIR) echo [stage-redist] copied $(REDIST_DIR)\ (interception.dll + LGPL notices) into $(SIGNED_REDIST_DIR)
 
 # Post-WHQL pipeline — see the header comment above for why this only ever touches the
 # installer .exe and Symbol\, never Signed\oib_kbd\/oib_mou\.
