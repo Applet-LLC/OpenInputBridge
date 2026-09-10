@@ -20,12 +20,28 @@
 //
 // Every invocation (regardless of which of the above) is gated on
 // common.h's IsSupportedWindowsEnvironment() first, unless --skip-version-check is also passed
-// — this driver has only ever been built/tested for x64 Windows 11+ (Windows 10 is explicitly
-// NOT supported; see that function's own comment and docs/DECISIONS.md's 2026-09-01 entry), and
-// installing a kernel driver on an unsupported combination risks a BSOD or silent input-handling
-// corruption, not just "might not work". --skip-version-check exists for the Pro/Subscription editions' own
-// WiX installers, which call this executable from a CustomAction sequence that may already
-// have its own, equivalent precondition checks earlier in the UI flow.
+// — this driver has only ever been built/tested for Windows 11+ on x64 or ARM64 (Windows 10 is
+// explicitly NOT supported; see that function's own comment and docs/DECISIONS.md's 2026-09-01
+// entry), and installing a kernel driver on an unsupported combination risks a BSOD or silent
+// input-handling corruption, not just "might not work". --skip-version-check exists for the
+// Pro/Subscription editions' own WiX installers, which call this executable from a CustomAction
+// sequence that may already have its own, equivalent precondition checks earlier in the UI flow.
+//
+// ARM64 self-relaunch (x64 build only, see the #if !defined(_M_ARM64) block below): this repo's
+// own setup.bat picks between OpenInputBridgeSetup.exe/-arm64.exe itself by host architecture,
+// so this branch never fires for it -- it exists for the Pro/Subscription editions' WiX
+// installers, whose CustomActions invoke this x64 exe by name (Pro vendors this exe unmodified
+// rather than building its own installer -- see that repo's Product.wxs). SetupInstallServices
+// FromInfSectionW (install.cpp) refuses to run from a process that isn't native to the host
+// architecture, so an x64 process running under emulation on an ARM64 host cannot complete
+// driver installation. Rather than require every downstream WiX installer to duplicate each
+// CustomAction for both architectures, this exe instead relaunches itself as
+// OpenInputBridgeSetup-arm64.exe (installer/OpenInputBridgeSetup_arm64.vcxproj, staged alongside
+// this exe) whenever IsNativeArm64() is true, forwarding argv verbatim and this process's exit
+// code. The ARM64 build itself never takes this branch (_M_ARM64 excludes it at compile time),
+// so there's no risk of the relaunched process relaunching itself again. Ported from
+// OpenInputBridge-Subscription's independently-maintained installer/main.cpp, which proved this
+// approach against real ARM64 hardware.
 
 #include "common.h"
 #include "auditlog.h"
@@ -35,11 +51,87 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace {
+
+#if !defined(_M_ARM64)
+// Quotes Argument for the Windows command-line grammar if it contains whitespace or is empty;
+// returns it unchanged otherwise. Doubles embedded '"' so CommandLineToArgvW-style parsers
+// (which this exe's own argv relies on) see it as a literal quote rather than a terminator.
+std::wstring QuoteCommandLineArgIfNeeded(const std::wstring& argument)
+{
+    bool needsQuotes = argument.empty() ||
+        argument.find_first_of(L" \t\"") != std::wstring::npos;
+    if (!needsQuotes) {
+        return argument;
+    }
+
+    std::wstring quoted = L"\"";
+    for (wchar_t character : argument) {
+        if (character == L'"') {
+            quoted += L'\\';
+        }
+        quoted += character;
+    }
+    quoted += L'"';
+    return quoted;
+}
+
+// Relaunches this same invocation (argv[1..argc-1], unchanged) as the ARM64-native sibling exe
+// sitting next to this one, waits for it to exit, and returns its exit code -- or std::nullopt
+// if the sibling exe is missing or could not be started, so the caller can fall through to
+// running (and almost certainly failing) natively instead of silently doing nothing.
+std::optional<int> RelaunchAsArm64(int argc, wchar_t* argv[])
+{
+    wchar_t modulePathBuffer[MAX_PATH];
+    GetModuleFileNameW(nullptr, modulePathBuffer, MAX_PATH);
+
+    std::filesystem::path arm64ExePath =
+        std::filesystem::path(modulePathBuffer).parent_path() / L"OpenInputBridgeSetup-arm64.exe";
+
+    if (!std::filesystem::exists(arm64ExePath)) {
+        wprintf(
+            L"[ERROR] This host is ARM64, but %s was not found next to this exe.\n",
+            arm64ExePath.c_str()
+            );
+        return std::nullopt;
+    }
+
+    std::wstring commandLine = QuoteCommandLineArgIfNeeded(arm64ExePath.wstring());
+    for (int i = 1; i < argc; ++i) {
+        commandLine += L' ';
+        commandLine += QuoteCommandLineArgIfNeeded(argv[i]);
+    }
+
+    STARTUPINFOW startupInfo{};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo{};
+
+    // CreateProcessW may write into its lpCommandLine buffer; commandLine is a local, owned
+    // copy, not argv itself.
+    BOOL created = CreateProcessW(
+        arm64ExePath.c_str(), commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+        &startupInfo, &processInfo
+        );
+    if (!created) {
+        wprintf(L"[ERROR] Failed to launch %s: %lu\n", arm64ExePath.c_str(), GetLastError());
+        return std::nullopt;
+    }
+
+    CloseHandle(processInfo.hThread);
+    WaitForSingleObject(processInfo.hProcess, INFINITE);
+
+    DWORD exitCode = 1;
+    GetExitCodeProcess(processInfo.hProcess, &exitCode);
+    CloseHandle(processInfo.hProcess);
+
+    return static_cast<int>(exitCode);
+}
+#endif // !defined(_M_ARM64)
 
 const wchar_t* const kUsage =
     L"Usage: OpenInputBridgeSetup.exe [/uninstall] [keyboard|mouse] [--slots=N]\n"
@@ -55,6 +147,20 @@ const wchar_t* const kUnsupportedEnvironmentMessage = L"This is the wrong Window
 
 int wmain(int argc, wchar_t* argv[])
 {
+#if !defined(_M_ARM64)
+    // See this file's header comment: on an ARM64 host, this x64 exe cannot itself create the
+    // driver service, so it hands the entire invocation off to its ARM64-native sibling before
+    // doing anything else (including argument parsing/validation below, which the sibling
+    // repeats identically).
+    if (OpenInputBridge::IsNativeArm64()) {
+        std::optional<int> relaunchExitCode = RelaunchAsArm64(argc, argv);
+        if (relaunchExitCode.has_value()) {
+            return *relaunchExitCode;
+        }
+        return 1;
+    }
+#endif
+
     // --skip-version-check is filtered out here rather than handled inline below, so every
     // other command (the argc==2/argc==3 dispatch, and the install/uninstall argument loop)
     // can keep working against a plain positional argument list, unaware this flag exists.

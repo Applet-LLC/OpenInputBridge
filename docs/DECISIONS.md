@@ -1276,3 +1276,38 @@ PnP再列挙で枯渇・不整合を起こす）は、OIBの`driver/common/slots
 テストツールと同様に対象外)。**実機での実施・観察結果の記録はまだ行っておらず**、
 `tests/slot_reassignment/README.md`の「観察結果」節は空のまま。ドライバ本体
 (`driver/common/slots.c`)への変更は行っていない。
+
+---
+
+## 2026-09-10: `installer/main.cpp`にARM64自己中継ロジックを移植
+
+### 経緯
+
+Pro版がOSS版の署名済みリリース(x64/ARM64)を`driver-package/`にそのままベンダーする構成に
+なっている一方、Pro版のWiXインストーラーはドライバファイルをアーキ別サブフォルダで
+配置していなかった。それ自体はPro版側の構成不備（別途対応）だが、調査の過程で、Pro版の
+WiX CustomActionが常にこのx64版`OpenInputBridgeSetup.exe`を直接呼ぶ構成である以上、
+`SetupInstallServicesFromInfSectionW`（install.cpp）がネイティブプロセスでの呼び出しを
+要求する制約（`installer/OpenInputBridgeSetup_arm64.vcxproj`のコメント参照、実機
+ARM64でERROR_IN_WOW64を確認済み）に、Pro版だけでは対処できないと判明した。
+
+Subscription版（`OpenInputBridge-Subscription`）は自前で`installer/main.cpp`を保守しており、
+「ARM64ホストと検知したらx64 exeが隣の`OpenInputBridgeSetup-arm64.exe`へ引数をそのまま渡して
+自己中継し、その終了コードを返す」ロジックを既に実装・実機検証済みだった。このリポジトリの
+`installer/main.cpp`はPro版が無改変でベンダーする「共通の一次配布物」でもあるため、同じロジックを
+ここに移植すれば、Pro版はWiX側でCustomActionをアーキ別に二重化することなく、次にこのリポジトリの
+署名済みビルドを取り込むだけで問題が解消される。
+
+### 対応
+
+- `installer/main.cpp`: `#if !defined(_M_ARM64)`ガード付きで`QuoteCommandLineArgIfNeeded`/
+  `RelaunchAsArm64`の2関数と、`wmain`冒頭（引数処理より前）での中継呼び出しを追加
+  （Subscription版の実装をほぼそのまま移植）。ARM64ビルド自体はこの分岐を含まないため、
+  中継された側が再度自分自身を中継しようとする心配はない。
+- このリポジトリ自身の`setup.bat`は元々ホストアーキに合わせて`OpenInputBridgeSetup.exe`/
+  `-arm64.exe`のどちらを実行するか自分で判定しているため、この中継ロジックが実際に発火する
+  ことはなく、CLI配布物としての既存動作に変化はない。
+- ドライバ本体（.sys）・INFへの変更は無いため、WHQL再申請は不要。インストーラー.exeの
+  EV再署名（`packaging/sign.mak`の`sign-bin`）のみで反映できる。
+- x64/ARM64の両方の`installer/OpenInputBridgeSetup*.vcxproj`でビルド可能なことを確認済み。
+  実機ARM64での中継動作自体の確認は未実施（Pro版側の対応と合わせて別途必要）。
