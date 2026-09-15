@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+ARM64 build of Identify2Sample.vcxproj — builds the exact same identify2.cpp (see that file's
+own header comment) and third_party/interception/samples/utils.c into an ARM64-native
+identify2.exe, linked against InterceptionLib_arm64.vcxproj's ARM64 interception.dll/.lib rather
+than InterceptionLib.vcxproj's x64 one.
+
+This is the actual ARM64-native test client for redist\arm64\interception.dll: AutoHotkey v2 and
+AutoHotInterception (tests/ahk_client/) are x86/x64-only upstream (no official ARM64 build as of
+2026-09), so an x64 AutoHotkey process on an ARM64 host runs under Windows' x64 emulation and can
+only ever load the x64 DLL — it cannot exercise the ARM64 one no matter which lib\ folder is
+made visible to it. This project produces a genuinely ARM64-native process instead, so it can
+actually load and call the ARM64 DLL.
+
+Deliberately a separate project file rather than an additional Platform inside
+Identify2Sample.vcxproj — same rationale as InterceptionLib_arm64.vcxproj (see its header
+comment and driver/keyboard/oib_kbd_arm64.vcxproj): wired into OpenInputBridge.sln with ONLY an
+ARM64 project configuration, mapped from every existing (x64) solution configuration via
+Configuration Manager.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{026A73E8-158A-44DD-8EF0-9EAAB66BE088}</ProjectGuid>
+    <RootNamespace>Identify2Sample_arm64</RootNamespace>
+    <!-- See InterceptionLib_arm64.vcxproj's identical note: EWDK's vsdevcmd.bat -winsdk=none
+         means a plain (non-driver) project needs IncludePath/LibraryPath spelled out
+         explicitly. -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">ARM64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- Deliberately the SAME OutDir as InterceptionLib_arm64.vcxproj — see that project's
+         identical note (resolves to tests\upstream_lib\ARM64\$(Configuration)\, distinct from
+         Identify2Sample.vcxproj's x64 output). -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <TargetName>identify2</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\ARM64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\ARM64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>..\..\third_party\interception\library;..\..\third_party\interception\samples;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <!-- interception.lib is InterceptionLib_arm64.vcxproj's import library, landing in the
+           shared OutDir above thanks to the ProjectReference build-order dependency below. -->
+      <AdditionalDependencies>interception.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="identify2.cpp" />
+    <ClCompile Include="..\..\third_party\interception\samples\utils.c">
+      <!-- Vendored, unmodified C source pulled into this self-authored C++ project purely for
+           raise_process_priority(); it has its own deprecation warnings (strcpy/strcat) that
+           aren't this project's to fix — don't hold it to this project's WX/W4. -->
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\third_party\interception\samples\utils.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="InterceptionLib_arm64.vcxproj">
+      <Project>{BA78F3ED-8CB1-495B-8C57-47D45C2B7489}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

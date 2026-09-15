@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+ARM64 build of InterceptionLib.vcxproj. Deliberately a separate project file rather than an
+additional Platform inside InterceptionLib.vcxproj: it lives in the same tests\upstream_lib\
+directory and its ClCompile/ClInclude items reference the exact same third_party/interception/
+library/interception.c(.h) InterceptionLib.vcxproj does, by the same relative paths — i.e. this
+project shares source with InterceptionLib.vcxproj by reference, it does not copy it. Same
+rationale/technique as driver/keyboard/oib_kbd_arm64.vcxproj (see that file's header comment):
+wired into OpenInputBridge.sln with ONLY an ARM64 project configuration, mapped from every
+existing (x64) solution configuration via Configuration Manager, so a single ordinary solution
+build produces both the x64 and ARM64 interception.dll in the same pass without adding a new
+solution Platform.
+
+Built for the same reason as InterceptionLib.vcxproj (M8 real-app compatibility evidence), but
+for ARM64: OpenInputBridge ships an ARM64 interception.dll in redist\ (see third_party/README.md
+and packaging/Update-InterceptionRedist.ps1), and unlike x64, no third-party consumer app used in
+tests/upstream_lib/ or tests/ahk_client/ ships an ARM64-native build to exercise it with (as of
+2026-09, AutoHotkey v2 and AutoHotInterception are both x86/x64-only; a WOW64/x64-emulated
+process can only load an x64 DLL, never this one). Identify2Sample_arm64.vcxproj is the
+ARM64-native client that actually exercises this DLL end to end.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{BA78F3ED-8CB1-495B-8C57-47D45C2B7489}</ProjectGuid>
+    <RootNamespace>InterceptionLib_arm64</RootNamespace>
+    <!-- See InterceptionLib.vcxproj's identical note: EWDK's vsdevcmd.bat -winsdk=none means a
+         plain (non-driver) project needs IncludePath/LibraryPath spelled out explicitly. -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">ARM64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- $(MSBuildProjectDirectory)-relative, same as InterceptionLib.vcxproj — resolves to
+         tests\upstream_lib\ARM64\$(Configuration)\, distinct from that project's x64 output. -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <!-- Shared OutDir with Identify2Sample_arm64.vcxproj in this same directory (so
+         identify2.exe finds interception.dll alongside it without a post-build copy step) —
+         IntDir must therefore be kept project-specific to avoid the two projects' intermediates
+         colliding. -->
+    <IntDir>$(Platform)\$(Configuration)\$(MSBuildProjectName)\</IntDir>
+    <TargetName>interception</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\ARM64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\ARM64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <!-- INTERCEPTION_EXPORT selects __declspec(dllexport) in interception.h's own
+           INTERCEPTION_API macro when building the DLL itself (consumers that #include
+           interception.h without defining this get dllimport instead — unchanged upstream
+           behavior, see interception.h). -->
+      <PreprocessorDefinitions>INTERCEPTION_EXPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)'=='Debug'">_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions Condition="'$(Configuration)'=='Release'">NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\third_party\interception\library\interception.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\third_party\interception\library\interception.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
