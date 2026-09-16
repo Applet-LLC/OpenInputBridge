@@ -1,4 +1,4 @@
-OpenInputBridge Installation Guide  1.00 2026-08-20 Applet LLC
+OpenInputBridge Installation Guide  1.01 2026-09-16 Applet LLC
 ==============================================================
 
 This package installs "OpenInputBridge", a Windows kernel driver that
@@ -41,6 +41,11 @@ Files in this package
   The device driver and symbol files built from OpenInputBridge.
   These files may not be redistributed. The device driver is
   EV-signed, packaged this way for evaluation convenience.
+
+- redist
+  Contains interception.dll under the LGPL-3.0 license, bundled here
+  for convenience, with EV-signed x64 and ARM64 builds. It's kept in
+  a separate folder because it's under a different license.
 
 - OibToastHelper.exe
 - OibToastHelper.ico
@@ -114,6 +119,13 @@ https://applet.gumroad.com/l/xsggij
 OpenInputBridge-Pro
 One-time payment.
 
+If you'd like to try it for free, get a trial license key here:
+
+https://applet.gumroad.com/l/ksqzgt
+OpenInputBridge-Subscription Evaluation License Key
+This is a trial license key for OpenInputBridge-Subscription above.
+It lets you try it free for 6 days.
+
 
 Source Code
 -----------
@@ -123,6 +135,33 @@ The source code is available under the MIT License.
 The device driver bundled in this zip file is for evaluation only and
 may not be redistributed.
 
+
+Change History
+--------------
+1.01 2026-09-16
+  - Added ARM64 support
+  - Bundled interception.dll (LGPL-3.0 license) in the redist folder
+    for convenience
+
+  - Added a registry setting that renames the control device, to make
+    it easier to evaluate side-by-side use with the Interception
+    device driver. Using
+    https://github.com/Applet-LLC/OpenInputBridge/blob/main/tests/device_name_base_oib.reg
+    renames interceptionXX to oibXX.
+
+  - Device driver:
+    Fixed a bug in ObReferenceObjectByHandle's AccessMode in
+    IOCTL_SET_EVENT.
+
+  - Other:
+    OSS edition: added a check that blocks installation when Secure
+    Boot, BitLocker, or Smart App Control is enabled.
+    Subscription edition: added trial license support.
+    Documented that installation on Windows 10 is not supported.
+
+
+1.00 2026-08-20
+  Initial release
 
 
 Vendor / Developer

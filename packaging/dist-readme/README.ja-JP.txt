@@ -1,4 +1,4 @@
-﻿OpenInputBridge インストールガイド　1.00 2026-08-20 Applet LLC
+﻿OpenInputBridge インストールガイド　1.01 2026-09-16 Applet LLC
 ==============================================================
 
 このパッケージは、Interception プロトコル互換のWindows用キーボード/マウス
@@ -34,9 +34,13 @@
 - OpenInputBridgeSetup.exe
 　セットアップファイルの本体です。
 
-- oib_kbd, oib_mou, Symbold
+- oib_kbd, oib_mou, Symbol
 　OpenInputBridgeをbuildして作成したデバイスドライバとシンボルファイルです。
 　これらのファイルは再配布不可です。デバイスドライバにはEV署名がついているものとなり、便宜上、評価可能な形にしているものです。
+
+- redist
+  LGPL-3.0ライセンスの interception.dllを便宜上格納しています。EV署名を付けたx64版とARM64版となります。
+　ライセンスが異なるため別フォルダに格納しています。
 
 - OibToastHelper.exe
 - OibToastHelper.ico
@@ -98,6 +102,13 @@ https://applet.gumroad.com/l/xsggij
 OpenInputBridge-Pro
 1回払いとなります。
 
+また、無料で御試用されたい場合、以下から試用ライセンスキーを入手してください。
+
+https://applet.gumroad.com/l/ksqzgt
+OpenInputBridge-Subscription Evaluation License Key
+上記、OpenInputBridge-Subscriptionの試用ライセンスキーを発行しています。
+無料で6日間だけ試すことが出来ます。
+
 
 ソースコード
 ------------
@@ -107,6 +118,28 @@ https://github.com/Applet-LLC/OpenInputBridge
 zipファイルに同梱されたデバイスドライバは、評価用のものであり
 再配布不可です。
 
+
+更新履歴
+--------
+1.01 2026-09-16
+　- ARM64対応
+　- redistフォルダ LGPL-3.0ライセンス interception.dllを便宜上格納
+
+　- interceptionのデバイスドライバと同時利用評価のために、レジストリ設定にて、コントロールデバイス名変更機能追加
+   https://github.com/Applet-LLC/OpenInputBridge/blob/main/tests/device_name_base_oib.reg を使うと
+　 interceptionXXを、oibXXに変更します。
+
+　- デバイスドライバ:
+　 IOCTL_SET_EVENT の ObReferenceObjectByHandle AccessMode のバグを修正
+
+  - その他:
+　 OSS版 セキュアブート、BitLocker、スマートアプリコントロール有効だとインストール中止機能追加
+　 サブスク版 試用ライセンス対応
+   Windows 10インストール不可を明記
+
+
+1.00 2026-08-20
+  初版リリース
 
 
 販売・開発元
