@@ -329,6 +329,39 @@ kbdclass以降の非同期処理が実際の原因であることの証明では
 キャリブレーション挙動との類推であり、mouclass側の実際の挙動として裏付けが取れていない）のため、
 本文（データ構造節）には反映していない。
 
+### 4. `IOCTL_WRITE`に複数レコードをまとめて渡しても、`ClassService`へは1レコードずつ届く（実機確認・提案）
+
+LayerDriver（`kbdlayer.sys`）側のOIB注入試験で、USB実機の複数キー同時入力（1枚のHIDレポートに複数キーが
+乗った状態。例: MT/LTキーと別のキーがほぼ同時に物理キーボードから届く状況）を再現しようとしたところ、
+クライアント側ツール（`OpenInputBridge-MCP-Testing/injector/injector.cpp`）が1回の`DeviceIoControl`で
+`OIB_KEYBOARD_INPUT_DATA`を1件しか渡さない実装だったため、まずそちらが原因かと疑った。
+
+**本ドライバのソース（`driver/common/ioctl.c`の`OibCtlHandleWrite`）を参照して確認**: 入力バッファは
+`strokeCount = inputBufferSize / strokeSize`件の配列として正しく受け付けており、クライアントが複数件を
+1回の`IOCTL_WRITE`にまとめて渡すこと自体は仕様どおり可能（`docs/PROTOCOL.md`の記述は正確）。しかし、
+チェーンの末尾まで落ちて実際の`ClassService`（＝`kbdclass`より下に位置する`kbdlayer.sys`等のフィルタの
+`ServiceCallback`）へ渡す段では、`for`ループが**レコードごとに`ClassService(..., stroke, stroke + 1, ...)`
+を個別に呼び出している**（`driver/common/ioctl.c` 300行目付近）。つまり、クライアントが何件まとめて
+`IOCTL_WRITE`に渡しても、下流のフィルタドライバからは常に「1レコードだけのバッチ」としてしか観測できず、
+**実機のUSBキーボードが1つのHIDレポートで複数キーの同時変化を1バッチとして送ってくる状況は、
+`IOCTL_WRITE`経由では原理的に再現不可能**（クライアント側の実装をどう変えても解決しない）。
+
+これは`kbdlayer.sys`側で「複数件バッチが来たときに1件ずつに分割して処理する」ロジック
+（`NeedsSingleEventDispatch`・`ParseLayerMapBlob`の`needsSingleEvents`）の、**複数件バッチが実際に
+素通りしてしまわないことの検証**を妨げている（2026-10-01、`feature/layer-to-tt`・`feature/tap-hold-modes`の
+実機試験でいずれも「単一IOCTLでの複数イベント一括送信」の項目を、この制約を理由に保留にした）。
+
+**提案（未反映・本ドライバへの機能追加の余地）**: `OibCtlHandleWrite`で、チェーンの末尾まで落ちた
+**連続する複数レコード**を`ClassService`へ**まとめて**（`stroke`から`stroke + 連続した件数`の範囲で）
+1回で渡すオプションを検討いただけないか。現状の「1件ずつチェーンを見て、その都度チェーン内で捕捉され
+うるか判定する」設計（チェーンの各レコードが独立してどのインスタンスに捕捉されるか変わりうる、という
+前提）自体は合理的だが、**「このIOCTL_WRITE呼び出し内で、結果的に全レコードが最後まで素通りして
+実ハードウェア配送に落ちた」場合に限り、個別配送ではなく一括配送にフォールバックする**（事前に全件を
+チェーン走査してから、1件も捕捉されなかった場合だけ一括で`ClassService`を呼ぶ、等）ことで、既存の
+捕捉セマンティクスを変えずに、実機のマルチキー同時入力を模したテストが可能になると考えられる。
+下流フィルタ（本件の`kbdlayer.sys`等）の複数件バッチ処理ロジックを実機を使わずに検証する手段が
+他に無いため、テスト自動化の観点で価値があると考え、ここに記録する。
+
 ## 参照実装ファイル（取り込み済み、無改変）
 
 - `third_party/interception/library/interception.c`
