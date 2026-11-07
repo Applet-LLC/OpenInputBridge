@@ -1,3 +1,5 @@
+**日本語** | [English](README.en.md)
+
 # OpenInputBridge
 
 **Windows用キーボード/マウス入力インターセプトドライバ。[Interception](https://github.com/oblitum/Interception) が公開しているユーザーモードAPI（LGPL）とプロトコル互換のカーネルドライバを、クリーンルームで独自実装するプロジェクトです。**
@@ -18,6 +20,9 @@ OpenInputBridge は、この**カーネルドライバ部分**を、
 これにより、Interception 互換のドライバ配下で、既存のオープンソースなユーザーモードライブラリや、それに依存する既存アプリケーション（AutoHotkeyのInterception fork等）を無改変で動かせることを目指します。
 
 ## ステータス
+
+WHQL版はリリース済です。[Release](../../releases) をご覧ください。
+なお、評価版、サブスク版では、[issues 12](https://github.com/Applet-LLC/OpenInputBridge/issues/12) の問題があり、正常に動作しない環境があることが判明しています。まだ直していないのでご留意ください。
 
 コア機能（ドライバ本体・インストーラ・コード署名）は実装済みで、実機での動作確認もほぼ完了済です。他ドキュメント中の「M0」「M5」等の表記は、以下のマイルストーンを指しています。実装済みでも実機テストがまだ済んでいない部分は、状態欄にその旨を明記しています。
 
