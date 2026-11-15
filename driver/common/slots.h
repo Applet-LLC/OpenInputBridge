@@ -97,3 +97,7 @@ VOID OibSlotUnlockInstances(_In_ ULONG SlotIndex);
 // for (entry = head->Flink; entry != head; entry = entry->Flink) idiom) while the instances
 // lock (above) is held.
 PLIST_ENTRY OibSlotGetInstancesListHead(_In_ ULONG SlotIndex);
+
+// TRUE if any control-device handle is currently open on any of this binary's slots. Used by the
+// hide operation (oib_mgmt.h) to refuse while a client still has a control device open.
+BOOLEAN OibSlotAnyOpenInstances(VOID);

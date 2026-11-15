@@ -213,3 +213,20 @@ OibSlotGetInstancesListHead(
     NT_ASSERT(SlotIndex < OibActiveSlotCount);
     return &OibSlotTable[SlotIndex].OpenInstances;
 }
+
+BOOLEAN
+OibSlotAnyOpenInstances(
+    VOID
+    )
+{
+    ULONG index;
+    BOOLEAN any = FALSE;
+
+    for (index = 0; index < OibActiveSlotCount && !any; index++) {
+        OibSlotLockInstances(index);
+        any = !IsListEmpty(&OibSlotTable[index].OpenInstances);
+        OibSlotUnlockInstances(index);
+    }
+
+    return any;
+}

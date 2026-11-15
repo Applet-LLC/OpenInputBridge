@@ -14,6 +14,7 @@
 #include "driver.h"
 #include "ioctl.h"
 #include "slots.h"
+#include "oib_mgmt.h"
 
 #include <ntstrsafe.h>
 
@@ -29,6 +30,32 @@
 // processes must be able to open these control devices. This DACL choice is a first cut;
 // revisit if M5's black-box observation of the real driver's ACL turns out to differ.
 static const WCHAR OibControlDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;WD)";
+
+// Management device (oib_mgmt.h): SYSTEM and Administrators only. Unlike the control devices
+// above it must never be reachable by ordinary users, since it can hide/show them.
+static const WCHAR OibMgmtDeviceSddl[] = L"D:P(A;;GA;;;SY)(A;;GA;;;BA)";
+
+// Parameters OibCreateControlDevices was first called with at DriverEntry, kept so that
+// IOCTL_OIB_SHOW_DEVICES can re-create exactly the same set of control devices later.
+static WDFDRIVER OibDriverHandle;
+static ULONG OibCtlActiveSlotCount;
+static ULONG OibCtlDeviceNumberBase;
+static WCHAR OibCtlDeviceNameBase[OIB_DEVICE_NAME_BASE_MAX_CHARS + 1];
+
+// The control devices currently in existence (NULL entries = not created / already deleted).
+// Written only from DriverEntry and the management queue, which is sequential.
+static WDFDEVICE OibControlDevices[OIB_TOTAL_DEVICE_SLOT_COUNT];
+
+// Guards OibDevicesHidden against OibAttachFileContextIfVisible. Never held across a
+// WdfObjectDelete or a device creation. Lock order: OibVisibilityLock, then a slot's
+// InstancesLock (OibSlotAnyOpenInstances / OibSlotAttachFileContext).
+static WDFSPINLOCK OibVisibilityLock;
+static BOOLEAN OibDevicesHidden;
+
+static NTSTATUS OibCreateManagementDevice(_In_ WDFDRIVER Driver);
+static NTSTATUS OibHideControlDevices(VOID);
+static NTSTATUS OibShowControlDevices(VOID);
+static VOID OibDeleteAllControlDevices(VOID);
 
 // This binary's own device setup class GUID (see docs/PROTOCOL.md and oib_kbd.inx/oib_mou.inx) —
 // used to confirm OibEvtDeviceAdd is being called for the class stack this binary is registered
@@ -207,9 +234,29 @@ DriverEntry(
     // Create all of this binary's ActiveSlotCount control devices unconditionally before
     // DriverEntry returns (see OibCreateControlDevices for why partial success is not
     // acceptable here).
-    status = OibCreateControlDevices(driver, activeSlotCount, deviceNumberBase, deviceNameBase);
+    OibDriverHandle = driver;
+    OibCtlActiveSlotCount = activeSlotCount;
+    OibCtlDeviceNumberBase = deviceNumberBase;
+    RtlCopyMemory(OibCtlDeviceNameBase, deviceNameBase, sizeof(OibCtlDeviceNameBase));
+    OibDevicesHidden = FALSE;
 
-    return status;
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ParentObject = driver;
+    status = WdfSpinLockCreate(&attributes, &OibVisibilityLock);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    status = OibCreateControlDevices(driver, activeSlotCount, deviceNumberBase, deviceNameBase);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    // Best effort: the hide/show management device is an optional extra. If it cannot be created
+    // the driver still provides the full Interception-compatible interface.
+    (VOID)OibCreateManagementDevice(driver);
+
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS
@@ -345,6 +392,12 @@ OibCreateControlDevices(
             return status;
         }
 
+        // Remembered immediately (before the remaining setup below can fail) so a failed
+        // IOCTL_OIB_SHOW_DEVICES can roll back every device created so far.
+        if (index < OIB_TOTAL_DEVICE_SLOT_COUNT) {
+            OibControlDevices[index] = controlDevice;
+        }
+
         context = OibGetControlDeviceContext(controlDevice);
         context->SlotIndex = index;
         // Every slot in this binary's table is the same kind (see driver.h's comment on
@@ -382,4 +435,216 @@ OibCreateControlDevices(
     }
 
     return STATUS_SUCCESS;
+}
+
+VOID
+OibDeleteAllControlDevices(
+    VOID
+    )
+{
+    ULONG index;
+
+    for (index = 0; index < OIB_TOTAL_DEVICE_SLOT_COUNT; index++) {
+        if (OibControlDevices[index] != NULL) {
+            // Removes the device object and its \DosDevices\ symbolic link. The framework
+            // defers the actual teardown until the last handle is closed, but hide only gets
+            // here when no handle is open (see OibHideControlDevices).
+            WdfObjectDelete(OibControlDevices[index]);
+            OibControlDevices[index] = NULL;
+        }
+    }
+}
+
+NTSTATUS
+OibAttachFileContextIfVisible(
+    _In_ ULONG SlotIndex,
+    _In_ PLIST_ENTRY FileContextLinkage
+    )
+{
+    NTSTATUS status = STATUS_SUCCESS;
+
+    WdfSpinLockAcquire(OibVisibilityLock);
+    if (OibDevicesHidden) {
+        status = STATUS_DELETE_PENDING;
+    } else {
+        OibSlotAttachFileContext(SlotIndex, FileContextLinkage);
+    }
+    WdfSpinLockRelease(OibVisibilityLock);
+
+    return status;
+}
+
+NTSTATUS
+OibHideControlDevices(
+    VOID
+    )
+{
+    WdfSpinLockAcquire(OibVisibilityLock);
+
+    if (OibDevicesHidden) {
+        WdfSpinLockRelease(OibVisibilityLock);
+        return STATUS_SUCCESS;
+    }
+
+    if (OibSlotAnyOpenInstances()) {
+        WdfSpinLockRelease(OibVisibilityLock);
+        return STATUS_DEVICE_BUSY;
+    }
+
+    // From here on OibAttachFileContextIfVisible refuses new handles, so no client can sneak in
+    // while the devices are deleted below (outside the spin lock: deletion needs PASSIVE_LEVEL).
+    OibDevicesHidden = TRUE;
+    WdfSpinLockRelease(OibVisibilityLock);
+
+    OibDeleteAllControlDevices();
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+OibShowControlDevices(
+    VOID
+    )
+{
+    NTSTATUS status;
+
+    if (!OibDevicesHidden) {
+        return STATUS_SUCCESS;
+    }
+
+    // OibDevicesHidden stays TRUE while the devices are created, so nobody can open a
+    // half-built set. A name collision here means an old device object is still alive.
+    status = OibCreateControlDevices(
+        OibDriverHandle,
+        OibCtlActiveSlotCount,
+        OibCtlDeviceNumberBase,
+        OibCtlDeviceNameBase
+        );
+    if (!NT_SUCCESS(status)) {
+        OibDeleteAllControlDevices();
+        return status;
+    }
+
+    WdfSpinLockAcquire(OibVisibilityLock);
+    OibDevicesHidden = FALSE;
+    WdfSpinLockRelease(OibVisibilityLock);
+
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+OibCreateManagementDevice(
+    _In_ WDFDRIVER Driver
+    )
+{
+    NTSTATUS status;
+    UNICODE_STRING sddlString;
+    UNICODE_STRING deviceName;
+    UNICODE_STRING symlinkName;
+    PWDFDEVICE_INIT deviceInit;
+    WDF_OBJECT_ATTRIBUTES attributes;
+    WDF_IO_QUEUE_CONFIG queueConfig;
+    WDFDEVICE device;
+
+#if defined(OIB_BUILD_KEYBOARD)
+    RtlInitUnicodeString(&deviceName, L"\\Device\\" OIB_KBD_MGMT_NAME);
+    RtlInitUnicodeString(&symlinkName, L"\\DosDevices\\" OIB_KBD_MGMT_NAME);
+#else
+    RtlInitUnicodeString(&deviceName, L"\\Device\\" OIB_MOU_MGMT_NAME);
+    RtlInitUnicodeString(&symlinkName, L"\\DosDevices\\" OIB_MOU_MGMT_NAME);
+#endif
+    RtlInitUnicodeString(&sddlString, OibMgmtDeviceSddl);
+
+    deviceInit = WdfControlDeviceInitAllocate(Driver, &sddlString);
+    if (deviceInit == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    WdfDeviceInitSetIoType(deviceInit, WdfDeviceIoBuffered);
+
+    status = WdfDeviceInitAssignName(deviceInit, &deviceName);
+    if (!NT_SUCCESS(status)) {
+        WdfDeviceInitFree(deviceInit);
+        return status;
+    }
+
+    // Hiding deletes devices, which must happen at PASSIVE_LEVEL.
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ExecutionLevel = WdfExecutionLevelPassive;
+
+    status = WdfDeviceCreate(&deviceInit, &attributes, &device);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
+    // Sequential: hide/show requests are serialized by the queue itself.
+    WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queueConfig, WdfIoQueueDispatchSequential);
+    queueConfig.EvtIoDeviceControl = OibMgmtEvtIoDeviceControl;
+
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ExecutionLevel = WdfExecutionLevelPassive;
+
+    status = WdfIoQueueCreate(device, &queueConfig, &attributes, WDF_NO_HANDLE);
+    if (!NT_SUCCESS(status)) {
+        WdfObjectDelete(device);
+        return status;
+    }
+
+    status = WdfDeviceCreateSymbolicLink(device, &symlinkName);
+    if (!NT_SUCCESS(status)) {
+        WdfObjectDelete(device);
+        return status;
+    }
+
+    WdfControlFinishInitializing(device);
+
+    return STATUS_SUCCESS;
+}
+
+VOID
+OibMgmtEvtIoDeviceControl(
+    _In_ WDFQUEUE Queue,
+    _In_ WDFREQUEST Request,
+    _In_ size_t OutputBufferLength,
+    _In_ size_t InputBufferLength,
+    _In_ ULONG IoControlCode
+    )
+{
+    NTSTATUS status;
+    size_t information = 0;
+
+    UNREFERENCED_PARAMETER(Queue);
+    UNREFERENCED_PARAMETER(OutputBufferLength);
+    UNREFERENCED_PARAMETER(InputBufferLength);
+
+    switch (IoControlCode) {
+    case IOCTL_OIB_HIDE_DEVICES:
+        status = OibHideControlDevices();
+        break;
+
+    case IOCTL_OIB_SHOW_DEVICES:
+        status = OibShowControlDevices();
+        break;
+
+    case IOCTL_OIB_GET_VISIBILITY:
+        {
+            OIB_VISIBILITY_INFO *info = NULL;
+
+            status = WdfRequestRetrieveOutputBuffer(Request, sizeof(*info), (PVOID *)&info, NULL);
+            if (NT_SUCCESS(status)) {
+                WdfSpinLockAcquire(OibVisibilityLock);
+                info->Visible = OibDevicesHidden ? 0 : 1;
+                WdfSpinLockRelease(OibVisibilityLock);
+                info->DeviceCount = OibCtlActiveSlotCount;
+                information = sizeof(*info);
+            }
+        }
+        break;
+
+    default:
+        status = STATUS_INVALID_DEVICE_REQUEST;
+        break;
+    }
+
+    WdfRequestCompleteWithInformation(Request, status, information);
 }

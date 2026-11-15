@@ -370,6 +370,7 @@ OibCtlEvtFileCreate(
 {
     POIB_CONTROL_DEVICE_CONTEXT ctlContext = OibGetControlDeviceContext(Device);
     POIB_FILE_CONTEXT fileContext = OibGetFileContext(FileObject);
+    NTSTATUS status;
 
     // Self-referencing until (if) OibSlotAttachFileContext links it for real, so that
     // OibCtlEvtFileClose's OibSlotDetachFileContext is always safe to call, even if the
@@ -399,7 +400,15 @@ OibCtlEvtFileCreate(
         return;
     }
 
-    OibSlotAttachFileContext(fileContext->SlotIndex, &fileContext->SlotLinkage);
+    status = OibAttachFileContextIfVisible(fileContext->SlotIndex, &fileContext->SlotLinkage);
+    if (!NT_SUCCESS(status)) {
+        // The control devices are being hidden (oib_mou/oib_kbd management IOCTL). Free the
+        // queue now; OibCtlEvtFileClose tolerates Queue == NULL and an unattached linkage.
+        ExFreePoolWithTag(fileContext->Queue, OIB_POOL_TAG);
+        fileContext->Queue = NULL;
+        WdfRequestComplete(Request, status);
+        return;
+    }
 
     WdfRequestComplete(Request, STATUS_SUCCESS);
 }

@@ -99,3 +99,14 @@ NTSTATUS OibCreateControlDevices(
     _In_ ULONG DeviceNumberBase,
     _In_ PCWSTR DeviceNameBase
     );
+
+// --- Hide/show of the interceptionNN control devices (see oib_mgmt.h) ---
+
+// Called from OibCtlEvtFileCreate instead of OibSlotAttachFileContext directly: attaches only
+// while the control devices are not being hidden, so a client can never slip an open handle
+// in between OibHideControlDevices's "no open handles" check and the actual device deletion.
+// Returns STATUS_DELETE_PENDING if the devices are hidden/being hidden.
+NTSTATUS OibAttachFileContextIfVisible(_In_ ULONG SlotIndex, _In_ PLIST_ENTRY FileContextLinkage);
+
+// Management-device IOCTL handler (oib_mgmt.h).
+EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL OibMgmtEvtIoDeviceControl;

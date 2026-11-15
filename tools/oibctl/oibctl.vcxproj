@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Copyright (c) 2026 OpenInputBridge Contributors
+SPDX-License-Identifier: MIT
+Licensed under the MIT License. See LICENSE file in the project root for full license text.
+
+Plain Win32 console application (not a driver project) — builds OibCtl.exe (hide/show of the
+interceptionNN control devices, see driver/common/oib_mgmt.h). Shares oib_mgmt.h with the drivers.
+-->
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{3E5F7A91-2C4D-4B68-A1D3-7F9B2E6C8A10}</ProjectGuid>
+    <RootNamespace>OibCtl</RootNamespace>
+    <!--
+      Deliberately not setting WindowsTargetPlatformVersion here: when built via the EWDK
+      (see /BuildEnv/SetupBuildEnv.cmd), it's already set in the environment to match the
+      EWDK's bundled SDK version, and vsdevcmd.bat is invoked with -winsdk=none (driver builds
+      resolve the SDK through WindowsSdkDir/WDKContentRoot themselves, not the normal SDK
+      auto-detection), so a plain Application project needs the IncludePath/LibraryPath below
+      spelled out explicitly rather than relying on Microsoft.Cpp.props' usual SDK discovery.
+    -->
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- $(MSBuildProjectDirectory)-relative, not $(SolutionDir)-relative: packaging/sign.mak
+         hardcodes ..\installer\x64\$(Configuration)\ as this project's output location, so it
+         must stay put regardless of whether this project is built standalone or as part of
+         OpenInputBridge.sln (where $(SolutionDir) would otherwise be the repo root instead). -->
+    <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <TargetName>OibCtl</TargetName>
+    <IncludePath>$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\um;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\shared;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\ucrt;$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\winrt;$(IncludePath)</IncludePath>
+    <LibraryPath>$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\um\x64;$(WindowsSdkDir)Lib\$(WindowsTargetPlatformVersion)\ucrt\x64;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <SDLCheck>true</SDLCheck>
+      <!-- Source files are UTF-8 (no BOM) — see driver/keyboard/oib_kbd.vcxproj's equivalent
+           note for why this matters under a non-UTF-8 system code page. -->
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <!-- Static CRT: this exe is handed to end users standalone (unzipped next to the driver
+           package), and requiring a separately-installed VC++ Redistributable just to run an
+           installer is an avoidable extra step for them. -->
+      <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebug</RuntimeLibrary>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- Talking to the management devices requires administrator rights (their DACL is SYSTEM + Administrators only). -->
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="oibctl.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\driver\common\oib_mgmt.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

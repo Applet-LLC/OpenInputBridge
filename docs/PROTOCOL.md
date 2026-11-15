@@ -362,6 +362,31 @@ LayerDriver（`kbdlayer.sys`）側のOIB注入試験で、USB実機の複数キ�
 下流フィルタ（本件の`kbdlayer.sys`等）の複数件バッチ処理ロジックを実機を使わずに検証する手段が
 他に無いため、テスト自動化の観点で価値があると考え、ここに記録する。
 
+## 管理デバイス（OpenInputBridge固有拡張、バージョン1.03以降）
+
+`\\.\interceptionNN`コントロールデバイスを、ドライバをロードしたまま一時的に消す／戻すための
+管理用インターフェース。Interceptionプロトコルには存在せず、既存のクライアントからは見えない。
+定義は[`driver/common/oib_mgmt.h`](../driver/common/oib_mgmt.h)。
+
+- 各バイナリが自分専用の管理デバイスを1つ持つ: `\\.\OibKbdManage`（`oib_kbd.sys`）、
+  `\\.\OibMouManage`（`oib_mou.sys`）。名前に`interception`を含まない。
+  `DeviceNameBase`の設定の影響を受けない。
+- DACLはSYSTEMとAdministratorsのみ（`interceptionNN`が全ユーザーに開放されているのとは逆）。
+- 管理デバイスは常に存在し、hide中も消えない。
+
+| IOCTL | function | 動作 |
+|---|---|---|
+| `IOCTL_OIB_HIDE_DEVICES` | `0xB00` | このバイナリの`\Device\<base>NN`と`\DosDevices\<base>NN`を全て削除する。冪等。いずれかが開かれていれば`STATUS_DEVICE_BUSY`（Win32 `ERROR_BUSY`）で拒否し、何も変更しない |
+| `IOCTL_OIB_SHOW_DEVICES` | `0xB10` | DriverEntryと同じ引数でコントロールデバイスを再作成する。冪等。名前が衝突した場合は作成済み分を戻して失敗する |
+| `IOCTL_OIB_GET_VISIBILITY` | `0xB20` | `OIB_VISIBILITY_INFO { ULONG Visible; ULONG DeviceCount; }`を返す |
+
+- hide中も、物理キーボード/マウスへのフィルタ接続・スロット割当・入力のパススルーは変わらない
+  （コントロールデバイスの有無と独立）。クライアントが存在し得ないので、捕捉・注入は行われない。
+- hide中に`CreateFile \\.\interceptionNN`すると`ERROR_FILE_NOT_FOUND`になる。
+- 状態は揮発性。ドライバのロード（再起動）ごとに必ず「表示」に戻る。
+- hideは強制クローズをしない。クライアントがハンドルを開いている間は`ERROR_BUSY`になる。
+- 管理用の`OibCtl.exe`（[`tools/oibctl/`](../tools/oibctl/)）がこのインターフェースを使う。
+
 ## 参照実装ファイル（取り込み済み、無改変）
 
 - `third_party/interception/library/interception.c`

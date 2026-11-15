@@ -1311,3 +1311,50 @@ Subscription版（`OpenInputBridge-Subscription`）は自前で`installer/main.c
   EV再署名（`packaging/sign.mak`の`sign-bin`）のみで反映できる。
 - x64/ARM64の両方の`installer/OpenInputBridgeSetup*.vcxproj`でビルド可能なことを確認済み。
   実機ARM64での中継動作自体の確認は未実施（Pro版側の対応と合わせて別途必要）。
+
+
+## 2026-11-15: ゲームのアンチチート（EAC）対策として、コントロールデバイスの一時無効化（hide/show）を追加
+
+### 経緯
+
+OIBを入れたままEA系ゲームを起動すると、EACが「Interception」という名前を理由に起動を拒否するという
+報告があった（"This software cannot be used at the same time as the game"）。OIBのサービス名は
+`OpenInputBridgeKeyboard`/`OpenInputBridgeMouse`、ドライバファイル名は`oib_kbd.sys`/`oib_mou.sys`で、
+文字列「Interception」が出てくるのは`\Device\interceptionNN`/`\DosDevices\interceptionNN`
+（20個のコントロールデバイス）だけなので、検出対象はこの名前だと推測した（未確認）。
+
+OIBは primitive driver でPnPのデバイスインスタンスを持たない。`interceptionNN`は`DriverEntry`が
+WDFコントロールデバイスとして作る名前付きオブジェクトで、pnputil/SetupDiでは消せない。
+
+### 決定
+
+- ドライバ側に管理デバイス（`\\.\OibKbdManage`/`\\.\OibMouManage`、管理者のみ）を追加し、
+  hide/show/状態取得のIOCTLを実装した（仕様は`docs/PROTOCOL.md`の「管理デバイス」）。
+  hide=コントロールデバイスの`WdfObjectDelete`、show=`OibCreateControlDevices`の再実行。
+- クライアントが開いている間のhideは、強制クローズせず`STATUS_DEVICE_BUSY`で拒否する。
+  カーネルから他プロセスのハンドルを安全に閉じる手段がなく、再作成時の名前衝突も招くため。
+  hide中の新規オープンは、可視状態フラグ（スピンロック）で拒否し、「開いていないことの確認」と
+  「削除」の間にクライアントが割り込めないようにした。
+- 状態は揮発性（再起動で必ず表示に戻る）。ツールが落ちても隠れたままにならない。
+- ドライバをアンロードする方式は採らない。UpperFilters解除とキーボード再起動が必要で、PS/2
+  キーボードは再起動できず、アンロードの成否も未確認なため。
+- ユーザー向けツールとして`tools/oibctl/`の`OibCtl.exe`（hide/show/status/run/guard、引数なしで簡易ダイアログ）と、
+  `packaging/scripts/`のbat/ps1サンプルを追加した。
+
+### 位置づけと限界
+
+hide中はクライアントが捕捉・注入する手段が存在しない。「ゲームと同時に使えない」という要求を、
+実際に機能を止めることで満たす方式であり、ゲーム中にInterceptionクライアントを使うための
+隠蔽手段ではない（README「利用に関する注意」参照）。ドライバ本体はロードされたままなので、EACが
+ドライバ名やサービス名まで見る場合は効かない。その場合のフォールバックはアンインストール。
+
+### 未確認事項
+
+- EACの検出が本当に`interceptionNN`の名前に由来するか。`DeviceNameBase=oib`（`tests/device_name_base_oib.reg`）＋
+  再起動で、報告者の環境のゲーム起動可否を確認する（hide方式に進む前の切り分け）。
+- 実機でのhide/showの繰り返し耐性（Driver Verifier有効）、WHQL/attestation再署名。
+  このコミットはビルド（x64）のみ確認済みで、ドライバの実機動作は未確認。
+- ARM64版`OibCtl-arm64.exe`のリンクは、この環境のツールチェーン不備（既存のARM64インストーラも同じ
+  LNK1112で失敗）のため未確認。コンパイルは通っている。
+- 派生版（OpenInputBridge-Subscription: 同じドライバ修正を移植、OpenInputBridge-Pro: ドライバ
+  バイナリとOibCtlの取り込みのみ）への展開は別途実施する。
