@@ -24,7 +24,7 @@ The goal is to let existing open-source user-mode libraries, and the application
 ## Status
 
 The WHQL version has been released. Please see [Releases](../../releases).
-Note that the evaluation and subscription versions have a known problem, [issue 12](https://github.com/Applet-LLC/OpenInputBridge/issues/12), which prevents them from working correctly in some environments. It has not been fixed yet, so please keep this in mind.
+Note that the evaluation and subscription versions have a known problem, [issue 12](https://github.com/Applet-LLC/OpenInputBridge/issues/12), and we have prepared version 1.02 with a fix. However, the fix has not yet been verified in an environment where the problem actually occurs.
 
 The core features (driver, installer, code signing) are implemented, and verification on real hardware is almost complete. Notations such as "M0" and "M5" in other documents refer to the milestones below. For parts that are implemented but not yet tested on real hardware, the status column says so explicitly.
 
