@@ -108,6 +108,11 @@
 #   OpenInputBridgeSetup-arm64.exe
 #   OibToastHelper.exe
 #   OibToastHelper.ico
+#   OibCtl.exe
+#   OibCtl-arm64.exe
+#   oib-hide.bat
+#   oib-show.bat
+#   oib-game.ps1
 #   README.md
 #   LICENSE
 #   README.ja-JP.txt
@@ -202,6 +207,20 @@ TARGET_BIN	= ..\installer\x64\Release\OpenInputBridgeSetup.exe
 # one matching the host's native architecture.
 TARGET_BIN_ARM64	= ..\installer\ARM64\Release\OpenInputBridgeSetup-arm64.exe
 
+# OibCtl: hide/show tool for the interceptionNN control devices (tools/oibctl/, driver 1.03+).
+# Ships flat next to OpenInputBridgeSetup.exe; the sample scripts below locate it via
+# %~dp0 / $PSScriptRoot, so they must stay in the same folder.
+TARGET_OIBCTL	= ..\tools\oibctl\x64\Release\OibCtl.exe
+
+TARGET_OIBCTL_ARM64	= ..\tools\oibctl\ARM64\Release\OibCtl-arm64.exe
+
+# Sample bat/ps1 wrappers around OibCtl — not build outputs, copied straight from source.
+TARGET_OIBCTL_SCRIPT_HIDE	= scripts\oib-hide.bat
+
+TARGET_OIBCTL_SCRIPT_SHOW	= scripts\oib-show.bat
+
+TARGET_OIBCTL_SCRIPT_GAME	= scripts\oib-game.ps1
+
 # --enable-toast's Scheduled Task (installer/toastsetup.cpp) launches this; it must ship
 # alongside OpenInputBridgeSetup.exe the same way the driver packages do.
 TARGET_TOAST_HELPER	= ..\installer\toast-helper\x64\Release\OibToastHelper.exe
@@ -281,6 +300,10 @@ sign-bin:
 		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN_ARM64)
 		@echo [sign-bin] signing toast helper
 		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_TOAST_HELPER)
+		@echo [sign-bin] signing OibCtl (x64)
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_OIBCTL)
+		@echo [sign-bin] signing OibCtl (ARM64)
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_OIBCTL_ARM64)
 		@echo [sign-bin] done
 
 sign-driver:
@@ -296,13 +319,15 @@ sign-driver:
 
 sign-all:
 		@echo [sign-all] signing all files.
-		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN) $(TARGET_BIN_ARM64) $(TARGET_TOAST_HELPER) $(TARGET_SYS_KBD) $(TARGET_CAT_KBD) $(TARGET_SYS_KBD_ARM64) $(TARGET_CAT_KBD_ARM64) $(TARGET_SYS_MOU) $(TARGET_CAT_MOU) $(TARGET_SYS_MOU_ARM64) $(TARGET_CAT_MOU_ARM64)
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN) $(TARGET_BIN_ARM64) $(TARGET_TOAST_HELPER) $(TARGET_OIBCTL) $(TARGET_OIBCTL_ARM64) $(TARGET_SYS_KBD) $(TARGET_CAT_KBD) $(TARGET_SYS_KBD_ARM64) $(TARGET_CAT_KBD_ARM64) $(TARGET_SYS_MOU) $(TARGET_CAT_MOU) $(TARGET_SYS_MOU_ARM64) $(TARGET_CAT_MOU_ARM64)
 		@echo [sign-all] done
 
 verify:
 		$(SIGNTOOL) verify /v /pa $(TARGET_BIN)
 		$(SIGNTOOL) verify /v /pa $(TARGET_BIN_ARM64)
 		$(SIGNTOOL) verify /v /pa $(TARGET_TOAST_HELPER)
+		$(SIGNTOOL) verify /v /pa $(TARGET_OIBCTL)
+		$(SIGNTOOL) verify /v /pa $(TARGET_OIBCTL_ARM64)
 		$(SIGNTOOL) verify /v /pa $(TARGET_SYS_KBD)
 		$(SIGNTOOL) verify /v /pa $(TARGET_CAT_KBD)
 		$(SIGNTOOL) verify /v /pa $(TARGET_SYS_KBD_ARM64)
@@ -326,12 +351,17 @@ stage-bin:
 		copy /y $(TARGET_BIN_ARM64) $(SIGNED_DIR)\.
 		copy /y $(TARGET_TOAST_HELPER) $(SIGNED_DIR)\.
 		copy /y $(TARGET_TOAST_ICON) $(SIGNED_DIR)\.
+		copy /y $(TARGET_OIBCTL) $(SIGNED_DIR)\.
+		copy /y $(TARGET_OIBCTL_ARM64) $(SIGNED_DIR)\.
+		copy /y $(TARGET_OIBCTL_SCRIPT_HIDE) $(SIGNED_DIR)\.
+		copy /y $(TARGET_OIBCTL_SCRIPT_SHOW) $(SIGNED_DIR)\.
+		copy /y $(TARGET_OIBCTL_SCRIPT_GAME) $(SIGNED_DIR)\.
 		copy /y $(TARGET_README) $(SIGNED_DIR)\.
 		copy /y $(TARGET_LICENSE) $(SIGNED_DIR)\.
 		copy /y $(TARGET_SETUP_BAT) $(SIGNED_DIR)\.
 		copy /y $(TARGET_DIST_README_JA) $(SIGNED_DIR)\.
 		copy /y $(TARGET_DIST_README_EN) $(SIGNED_DIR)\.
-		@echo [stage-bin] copied installer, toast helper, its icon, README, LICENSE, setup.bat, and the dist-readme files into $(SIGNED_DIR)
+		@echo [stage-bin] copied installer, toast helper, its icon, OibCtl (x64/ARM64) and its sample scripts, README, LICENSE, setup.bat, and the dist-readme files into $(SIGNED_DIR)
 
 stage-driver:
 		@if not exist $(SIGNED_DIR) mkdir $(SIGNED_DIR)
