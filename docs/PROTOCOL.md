@@ -32,7 +32,7 @@ Licensed under the MIT License. See LICENSE file in the project root for full li
   `keyboard.inf`/`mouse.inf`とDriver Store上で衝突するため（[docs/DECISIONS.md](DECISIONS.md)の
   2026-08-02付エントリ、2つ目参照）
 - **2026-08-02以降、上記10/10の境界は既定値であり、`KeyboardSlotCount`レジストリ値
-  （両サービスの`Parameters`キー、`OpenInputBridgeSetup.exe install keyboard|mouse --slots=N`で設定）
+  （両サービスの`Parameters`キー、`OpenInputBridgeSetup.exe keyboard|mouse --slots=N`で設定）
   により変更できる**（[docs/DECISIONS.md](DECISIONS.md)の2026-08-02付エントリ参照）。合計20個は
   常に維持されるため、本家ライブラリの`interception_create_context()`自体は配分比率によらず常に
   成功する。しかし本家`interception.h`の`INTERCEPTION_KEYBOARD(n)`/`INTERCEPTION_MOUSE(n)`マクロは
