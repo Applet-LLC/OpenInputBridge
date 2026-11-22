@@ -189,7 +189,7 @@ OpenInputBridgeの`driver/*.c`には現状`alloc_text`が一切無く、該当�
 （`REG_DWORD`、両サービスの`Parameters`キーに同じ値を書く）だけを持ち、マウス側の配分は
 常に`20 - KeyboardSlotCount`として導出する。値が1つしかないため、2つの独立したドライバ間で
 配分が食い違って番号が衝突・欠落する事故が構造的に起こらない。インストーラの
-`OpenInputBridgeSetup.exe install keyboard|mouse --slots=N`で設定する。
+`OpenInputBridgeSetup.exe keyboard|mouse --slots=N`で設定する。
 
 `driver/common/slots.c`の配列は`OIB_TOTAL_DEVICE_SLOT_COUNT`（常に20）で確保し、実際に使う
 範囲だけを実行時の`ActiveSlotCount`で制御する形にしたため、動的メモリ確保は不要だった。
@@ -1348,13 +1348,29 @@ hide中はクライアントが捕捉・注入する手段が存在しない。�
 隠蔽手段ではない（README「利用に関する注意」参照）。ドライバ本体はロードされたままなので、EACが
 ドライバ名やサービス名まで見る場合は効かない。その場合のフォールバックはアンインストール。
 
+### 実機での確認結果（2026-11-21）
+
+- `DeviceNameBase=oib`（`tests/device_name_base_oib.reg`）＋再起動で、ドライバ1.01を入れたままでも
+  EACの検出を回避できた。EACの検出対象は`interceptionNN`の名前と確定した（ドライバ名・サービス名・
+  `interception.dll`のロードは検出対象ではなかった）。
+- WHQL署名した1.03（Secure Boot/TPM 2.0必須の環境）で、インストール直後はゲームがエラーダイアログを
+  出し、`OibCtl hide`（`oib-hide.bat`）の後はゲームが起動した。`status`/`hide`/`show`の往復と、
+  hide中の状態表示（keyboard: hidden / mouse: hidden）も期待どおりだった。
+- 配布zipに同梱した`OibCtl.exe`と`oib-hide.bat`/`oib-show.bat`が実機で動作した
+  （`packaging/sign.mak`で署名・同梱）。
+- ARM64版`OibCtl-arm64.exe`のリンク失敗は、環境の問題ではなく`oibctl_arm64.vcxproj`の`LibraryPath`が
+  x64のSDKライブラリを指していた設定ミスだった。`arm64`に直してビルドできることを確認した。
+
+位置づけの補足: `DeviceNameBase`の変更は再起動が必要で、`interception.dll`を使う既存クライアントは
+名前を変えると見つけられなくなる。hide/showは再起動なしで切り替えられ、クライアント側の変更も不要
+なので、ゲームと併用する用途ではこちらを主とし、`DeviceNameBase`は恒常的に名前を変えたい用途向けと
+位置づける。
+
 ### 未確認事項
 
-- EACの検出が本当に`interceptionNN`の名前に由来するか。`DeviceNameBase=oib`（`tests/device_name_base_oib.reg`）＋
-  再起動で、報告者の環境のゲーム起動可否を確認する（hide方式に進む前の切り分け）。
-- 実機でのhide/showの繰り返し耐性（Driver Verifier有効）、WHQL/attestation再署名。
-  このコミットはビルド（x64）のみ確認済みで、ドライバの実機動作は未確認。
-- ARM64版`OibCtl-arm64.exe`のリンクは、この環境のツールチェーン不備（既存のARM64インストーラも同じ
-  LNK1112で失敗）のため未確認。コンパイルは通っている。
+- hide/showの繰り返し耐性（Driver Verifier有効、数百回）と、`!poolused`でのリーク確認。
+- `OibCtl run`/`guard`/`oib-game.ps1`の実機での動作確認（今回は`hide`/`show`/`status`のみ）。
+- hide中のキーボード/マウス抜き差しでのスロット割り当て、クライアントが開いている間のhide
+  （`ERROR_BUSY`、終了コード1）の実機確認。
 - 派生版（OpenInputBridge-Subscription: 同じドライバ修正を移植、OpenInputBridge-Pro: ドライバ
   バイナリとOibCtlの取り込みのみ）への展開は別途実施する。
