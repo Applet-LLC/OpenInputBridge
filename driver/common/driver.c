@@ -194,6 +194,12 @@ DriverEntry(
     ULONG deviceNumberBase;
     WCHAR deviceNameBase[OIB_DEVICE_NAME_BASE_MAX_CHARS + 1];
 
+#ifdef OIB_WIN10_COMPAT
+    // Required before any ExAllocatePoolZero call in the Windows 10 compatibility build
+    // (POOL_ZERO_DOWN_LEVEL_SUPPORT); see driver.h's OibAllocPagedZero comment.
+    ExInitializeDriverRuntime(DrvRtPoolNxOptIn);
+#endif
+
     WDF_DRIVER_CONFIG_INIT(&config, OibEvtDeviceAdd);
 
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);

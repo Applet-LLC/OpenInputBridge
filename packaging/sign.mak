@@ -99,6 +99,17 @@
 # (see Packaging.vcxproj) since it can hold hand-placed WHQL submission output that took days
 # to get back — only dist\ is safe to blow away and regenerate on every build.
 #
+# Windows 10 (1607+, x64) driver packages: the Windows 11 packages above are KMDF 1.33 and do
+# not load on Windows 10 (in-box KMDF 1.19-1.31), so Windows 10 gets its own build of the same
+# source (solution projects oib_kbd_win10 / oib_mou_win10: KMDF 1.19, no ExAllocatePool2), staged
+# into <exeDir>\<PackageName>\x64_win10\ and selected by installer/common.cpp's
+# GetDriverPackageArchSubdir() for x64 builds below 22000. In "all" they are EV-signed from the
+# build output like everything else. In "whql" (installer-only signing) they follow the same
+# rule as the pdb: an Attestation-Signing-returned package hand-placed in
+# Signed\oib_kbd\x64_win10\ and Signed\oib_mou\x64_win10\ (both, with .inf/.cat/.sys) is left
+# alone; if either is missing, both are signed from the build output (test-signing mode needed
+# on Windows 10 until attestation signing is obtained).
+#
 # Distribution layout (matches what installer/install.cpp's InfPath lookup expects —
 # <exeDir>\<PackageName>\<arch>\<PackageName>.inf per driver, <arch> being "x64" or "arm64"
 # per common.h's IsNativeArm64() — a single zip carries both architectures, and the installer
@@ -123,14 +134,18 @@
 #   oib_kbd\arm64\oib_kbd.inf
 #   oib_kbd\arm64\oib_kbd.cat
 #   oib_kbd\arm64\oib_kbd.sys
+#   oib_kbd\x64_win10\oib_kbd.inf   (+ .cat, .sys: the Windows 10 package, see above)
 #   oib_mou\x64\oib_mou.inf
 #   oib_mou\x64\oib_mou.cat
 #   oib_mou\x64\oib_mou.sys
 #   oib_mou\arm64\oib_mou.inf
 #   oib_mou\arm64\oib_mou.cat
 #   oib_mou\arm64\oib_mou.sys
+#   oib_mou\x64_win10\oib_mou.inf   (+ .cat, .sys)
 #   Symbol\oib_kbd.pdb
 #   Symbol\oib_kbd_arm64.pdb
+#   Symbol\oib_kbd_win10.pdb
+#   Symbol\oib_mou_win10.pdb
 #   Symbol\oib_mou.pdb
 #   Symbol\oib_mou_arm64.pdb
 #   redist\x64\interception.dll    (OPTIONAL — only if stage-redist was run; see above)
@@ -145,6 +160,10 @@ DRIVER_PACKAGE_DIR_KBD_ARM64	= ..\driver\keyboard\ARM64\Release\oib_kbd
 DRIVER_PACKAGE_DIR_MOU	= ..\driver\mouse\x64\Release\oib_mou
 
 DRIVER_PACKAGE_DIR_MOU_ARM64	= ..\driver\mouse\ARM64\Release\oib_mou
+
+DRIVER_PACKAGE_DIR_KBD_WIN10	= ..\driver\keyboard\x64\Release_Win10\oib_kbd_win10
+
+DRIVER_PACKAGE_DIR_MOU_WIN10	= ..\driver\mouse\x64\Release_Win10\oib_mou_win10
 
 TARGET_SYS_KBD	= $(DRIVER_PACKAGE_DIR_KBD)\oib_kbd.sys
 
@@ -172,6 +191,30 @@ TARGET_PDB_KBD	= ..\driver\keyboard\x64\Release\oib_kbd.pdb
 TARGET_PDB_KBD_ARM64	= Signed\oib_kbd\arm64\oib_kbd.pdb
 !ELSE
 TARGET_PDB_KBD_ARM64	= ..\driver\keyboard\ARM64\Release\oib_kbd.pdb
+!ENDIF
+
+TARGET_SYS_KBD_WIN10	= $(DRIVER_PACKAGE_DIR_KBD_WIN10)\oib_kbd.sys
+
+TARGET_INF_KBD_WIN10	= $(DRIVER_PACKAGE_DIR_KBD_WIN10)\oib_kbd.inf
+
+TARGET_CAT_KBD_WIN10	= $(DRIVER_PACKAGE_DIR_KBD_WIN10)\oib_kbd.cat
+
+TARGET_SYS_MOU_WIN10	= $(DRIVER_PACKAGE_DIR_MOU_WIN10)\oib_mou.sys
+
+TARGET_INF_MOU_WIN10	= $(DRIVER_PACKAGE_DIR_MOU_WIN10)\oib_mou.inf
+
+TARGET_CAT_MOU_WIN10	= $(DRIVER_PACKAGE_DIR_MOU_WIN10)\oib_mou.cat
+
+!IF EXIST(Signed\oib_kbd\x64_win10\oib_kbd.pdb)
+TARGET_PDB_KBD_WIN10	= Signed\oib_kbd\x64_win10\oib_kbd.pdb
+!ELSE
+TARGET_PDB_KBD_WIN10	= ..\driver\keyboard\x64\Release_Win10\oib_kbd.pdb
+!ENDIF
+
+!IF EXIST(Signed\oib_mou\x64_win10\oib_mou.pdb)
+TARGET_PDB_MOU_WIN10	= Signed\oib_mou\x64_win10\oib_mou.pdb
+!ELSE
+TARGET_PDB_MOU_WIN10	= ..\driver\mouse\x64\Release_Win10\oib_mou.pdb
 !ENDIF
 
 TARGET_SYS_MOU	= $(DRIVER_PACKAGE_DIR_MOU)\oib_mou.sys
@@ -264,6 +307,10 @@ SIGNED_DRIVERS_DIR_MOU	= $(SIGNED_DIR)\oib_mou\x64
 
 SIGNED_DRIVERS_DIR_MOU_ARM64	= $(SIGNED_DIR)\oib_mou\arm64
 
+SIGNED_DRIVERS_DIR_KBD_WIN10	= $(SIGNED_DIR)\oib_kbd\x64_win10
+
+SIGNED_DRIVERS_DIR_MOU_WIN10	= $(SIGNED_DIR)\oib_mou\x64_win10
+
 SIGNED_SYMBOLS_DIR	= $(SIGNED_DIR)\Symbol
 
 # Third-party (LGPL-3.0) redistributable, not built by this solution — see Update-
@@ -315,11 +362,15 @@ sign-driver:
 		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_SYS_MOU) $(TARGET_CAT_MOU)
 		@echo [sign-driver] signing mouse driver package (ARM64)
 		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_SYS_MOU_ARM64) $(TARGET_CAT_MOU_ARM64)
+		@echo [sign-driver] signing keyboard driver package (Windows 10 x64)
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_SYS_KBD_WIN10) $(TARGET_CAT_KBD_WIN10)
+		@echo [sign-driver] signing mouse driver package (Windows 10 x64)
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_SYS_MOU_WIN10) $(TARGET_CAT_MOU_WIN10)
 		@echo [sign-driver] done
 
 sign-all:
 		@echo [sign-all] signing all files.
-		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN) $(TARGET_BIN_ARM64) $(TARGET_TOAST_HELPER) $(TARGET_OIBCTL) $(TARGET_OIBCTL_ARM64) $(TARGET_SYS_KBD) $(TARGET_CAT_KBD) $(TARGET_SYS_KBD_ARM64) $(TARGET_CAT_KBD_ARM64) $(TARGET_SYS_MOU) $(TARGET_CAT_MOU) $(TARGET_SYS_MOU_ARM64) $(TARGET_CAT_MOU_ARM64)
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_BIN) $(TARGET_BIN_ARM64) $(TARGET_TOAST_HELPER) $(TARGET_OIBCTL) $(TARGET_OIBCTL_ARM64) $(TARGET_SYS_KBD) $(TARGET_CAT_KBD) $(TARGET_SYS_KBD_ARM64) $(TARGET_CAT_KBD_ARM64) $(TARGET_SYS_MOU) $(TARGET_CAT_MOU) $(TARGET_SYS_MOU_ARM64) $(TARGET_CAT_MOU_ARM64) $(TARGET_SYS_KBD_WIN10) $(TARGET_CAT_KBD_WIN10) $(TARGET_SYS_MOU_WIN10) $(TARGET_CAT_MOU_WIN10)
 		@echo [sign-all] done
 
 verify:
@@ -336,6 +387,10 @@ verify:
 		$(SIGNTOOL) verify /v /pa $(TARGET_CAT_MOU)
 		$(SIGNTOOL) verify /v /pa $(TARGET_SYS_MOU_ARM64)
 		$(SIGNTOOL) verify /v /pa $(TARGET_CAT_MOU_ARM64)
+		$(SIGNTOOL) verify /v /pa $(TARGET_SYS_KBD_WIN10)
+		$(SIGNTOOL) verify /v /pa $(TARGET_CAT_KBD_WIN10)
+		$(SIGNTOOL) verify /v /pa $(TARGET_SYS_MOU_WIN10)
+		$(SIGNTOOL) verify /v /pa $(TARGET_CAT_MOU_WIN10)
 
 # Copies the already-signed binaries (plus the unsigned .inf/.pdb) into a clean staging
 # folder, laid out the way installer/install.cpp and an HLK submission both expect.
@@ -369,6 +424,8 @@ stage-driver:
 		@if not exist $(SIGNED_DRIVERS_DIR_KBD_ARM64) mkdir $(SIGNED_DRIVERS_DIR_KBD_ARM64)
 		@if not exist $(SIGNED_DRIVERS_DIR_MOU) mkdir $(SIGNED_DRIVERS_DIR_MOU)
 		@if not exist $(SIGNED_DRIVERS_DIR_MOU_ARM64) mkdir $(SIGNED_DRIVERS_DIR_MOU_ARM64)
+		@if not exist $(SIGNED_DRIVERS_DIR_KBD_WIN10) mkdir $(SIGNED_DRIVERS_DIR_KBD_WIN10)
+		@if not exist $(SIGNED_DRIVERS_DIR_MOU_WIN10) mkdir $(SIGNED_DRIVERS_DIR_MOU_WIN10)
 		copy /y $(TARGET_INF_KBD) $(SIGNED_DRIVERS_DIR_KBD)\.
 		copy /y $(TARGET_CAT_KBD) $(SIGNED_DRIVERS_DIR_KBD)\.
 		copy /y $(TARGET_SYS_KBD) $(SIGNED_DRIVERS_DIR_KBD)\.
@@ -381,7 +438,13 @@ stage-driver:
 		copy /y $(TARGET_INF_MOU_ARM64) $(SIGNED_DRIVERS_DIR_MOU_ARM64)\.
 		copy /y $(TARGET_CAT_MOU_ARM64) $(SIGNED_DRIVERS_DIR_MOU_ARM64)\.
 		copy /y $(TARGET_SYS_MOU_ARM64) $(SIGNED_DRIVERS_DIR_MOU_ARM64)\.
-		@echo [stage-driver] copied all four driver packages (keyboard/mouse x x64/ARM64) into $(SIGNED_DIR)
+		copy /y $(TARGET_INF_KBD_WIN10) $(SIGNED_DRIVERS_DIR_KBD_WIN10)\.
+		copy /y $(TARGET_CAT_KBD_WIN10) $(SIGNED_DRIVERS_DIR_KBD_WIN10)\.
+		copy /y $(TARGET_SYS_KBD_WIN10) $(SIGNED_DRIVERS_DIR_KBD_WIN10)\.
+		copy /y $(TARGET_INF_MOU_WIN10) $(SIGNED_DRIVERS_DIR_MOU_WIN10)\.
+		copy /y $(TARGET_CAT_MOU_WIN10) $(SIGNED_DRIVERS_DIR_MOU_WIN10)\.
+		copy /y $(TARGET_SYS_MOU_WIN10) $(SIGNED_DRIVERS_DIR_MOU_WIN10)\.
+		@echo [stage-driver] copied all six driver packages (keyboard/mouse x x64/ARM64/Windows 10 x64) into $(SIGNED_DIR)
 
 stage-symbol:
 		@if not exist $(SIGNED_DIR) mkdir $(SIGNED_DIR)
@@ -390,7 +453,9 @@ stage-symbol:
 		copy /y $(TARGET_PDB_KBD_ARM64) $(SIGNED_SYMBOLS_DIR)\oib_kbd_arm64.pdb
 		copy /y $(TARGET_PDB_MOU) $(SIGNED_SYMBOLS_DIR)\.
 		copy /y $(TARGET_PDB_MOU_ARM64) $(SIGNED_SYMBOLS_DIR)\oib_mou_arm64.pdb
-		@echo [stage-symbol] copied all four pdbs (keyboard/mouse x x64/ARM64) into $(SIGNED_SYMBOLS_DIR)
+		copy /y $(TARGET_PDB_KBD_WIN10) $(SIGNED_SYMBOLS_DIR)\oib_kbd_win10.pdb
+		copy /y $(TARGET_PDB_MOU_WIN10) $(SIGNED_SYMBOLS_DIR)\oib_mou_win10.pdb
+		@echo [stage-symbol] copied all six pdbs (keyboard/mouse x x64/ARM64/Windows 10 x64) into $(SIGNED_SYMBOLS_DIR)
 
 # OPTIONAL, not a dependency of "all"/"stage" — see header comment. redist\ is populated by
 # running Update-InterceptionRedist.ps1 separately (pulls from the Applet LLC Interception
@@ -405,7 +470,31 @@ stage-redist:
 
 # Post-WHQL pipeline — see the header comment above for why this only ever touches the
 # installer .exe and Symbol\, never Signed\oib_kbd\/oib_mou\.
-whql: sign-bin stage-bin stage-symbol
+# Windows 10 packages in the whql pipeline: leave hand-placed (attestation-signed) packages in
+# Signed\oib_kbd\x64_win10\ and Signed\oib_mou\x64_win10\ alone; if either is missing, sign both
+# from the build output (EV only -- needs test-signing mode on Windows 10) and stage them.
+!IF EXIST(Signed\oib_kbd\x64_win10\oib_kbd.cat) && EXIST(Signed\oib_mou\x64_win10\oib_mou.cat)
+WHQL_WIN10_STEP	= whql-win10-placed
+!ELSE
+WHQL_WIN10_STEP	= whql-win10-build
+!ENDIF
+
+whql-win10-placed:
+		@echo [whql] Windows 10 packages already in Signed\oib_kbd\x64_win10\ and Signed\oib_mou\x64_win10\ - left as-is.
+
+whql-win10-build:
+		@echo [whql] Windows 10 packages not placed - signing the build output (EV only) and staging it.
+		-$(SIGNTOOL) sign /v /a /n "Applet LLC" /tr http://timestamp.globalsign.com/tsa/r45standard /td sha256 /fd sha256 /ph $(TARGET_SYS_KBD_WIN10) $(TARGET_CAT_KBD_WIN10) $(TARGET_SYS_MOU_WIN10) $(TARGET_CAT_MOU_WIN10)
+		@if not exist $(SIGNED_DRIVERS_DIR_KBD_WIN10) mkdir $(SIGNED_DRIVERS_DIR_KBD_WIN10)
+		@if not exist $(SIGNED_DRIVERS_DIR_MOU_WIN10) mkdir $(SIGNED_DRIVERS_DIR_MOU_WIN10)
+		copy /y $(TARGET_INF_KBD_WIN10) $(SIGNED_DRIVERS_DIR_KBD_WIN10)\.
+		copy /y $(TARGET_CAT_KBD_WIN10) $(SIGNED_DRIVERS_DIR_KBD_WIN10)\.
+		copy /y $(TARGET_SYS_KBD_WIN10) $(SIGNED_DRIVERS_DIR_KBD_WIN10)\.
+		copy /y $(TARGET_INF_MOU_WIN10) $(SIGNED_DRIVERS_DIR_MOU_WIN10)\.
+		copy /y $(TARGET_CAT_MOU_WIN10) $(SIGNED_DRIVERS_DIR_MOU_WIN10)\.
+		copy /y $(TARGET_SYS_MOU_WIN10) $(SIGNED_DRIVERS_DIR_MOU_WIN10)\.
+
+whql: sign-bin stage-bin $(WHQL_WIN10_STEP) stage-symbol
 		@echo [whql] installer signed + staged, Symbol\ refreshed. Signed\oib_kbd\/oib_mou\ left as-is:
 		@echo [whql] make sure the HLK/WHQL-returned .inf/.cat/.sys for both keyboard and mouse,
 		@echo [whql] for BOTH x64 and ARM64 (two independent HLK submissions), are already sitting in

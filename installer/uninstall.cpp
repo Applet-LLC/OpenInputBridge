@@ -25,13 +25,11 @@
 
 #include "common.h"
 
-#include <newdev.h>
 
 #include <filesystem>
 #include <cstdio>
 #include <string>
 
-#pragma comment(lib, "Newdev.lib")
 
 namespace OpenInputBridge {
 
@@ -103,10 +101,10 @@ int RunUninstallOne(const DriverInfo& driver)
         wprintf(L"Deleted the %s service registration.\n", driver.ServiceName);
     }
 
-    const wchar_t* archSubdir = IsNativeArm64() ? L"arm64" : L"x64";
+    const wchar_t* archSubdir = GetDriverPackageArchSubdir();
     std::filesystem::path infPath = GetModuleDirectory() / driver.PackageName / archSubdir /
         (std::wstring(driver.PackageName) + L".inf");
-    BOOL needReboot = FALSE;
+    int needReboot = 0;
 
     if (!std::filesystem::exists(infPath)) {
         wprintf(
@@ -115,7 +113,7 @@ int RunUninstallOne(const DriverInfo& driver)
             L"copy, if any, will need to be cleaned up separately, e.g. via pnputil).\n",
             infPath.c_str()
             );
-    } else if (!DiUninstallDriverW(nullptr, infPath.c_str(), 0, &needReboot)) {
+    } else if (!UninstallDriverPackage(infPath.c_str(), driver.PackageName, &needReboot)) {
         wprintf(L"[ERROR] DiUninstallDriver failed: %lu\n", GetLastError());
         ok = false;
     } else {

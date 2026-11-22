@@ -104,9 +104,12 @@ WHQL署名済みドライバではこれらの手順はいずれも不要です�
 
 - setup.batを実行すれば、インストールされます。以下は、batファイルでの実施内容です。
 
-- x64またはARM64かつWindows 11以降かを確認し（Windows 10は、最新の22H2であっても**非対応**です。
-  インストールするとキーボード/マウスが再起動後に使用不可となります）、満たさなければ
-  「This is the wrong Windows version. It's for Windows 11.」と表示してその場で中止する
+- x64のWindows 10（バージョン1607以降）、またはx64/ARM64のWindows 11以降かを確認し
+  （ARM64のWindows 10は非対応です）、満たさなければ
+  「This is the wrong Windows version. It's for Windows 10 (version 1607 or later, x64) or Windows 11.」
+  と表示してその場で中止する。Windows 10では、KMDF 1.19でビルドしたWindows 10用ドライバ
+  （`x64_win10`フォルダ）が自動で選ばれる。Windows 11用ドライバ（KMDF 1.33）は
+  Windows 10のKMDFが古いためロードできず、入れるとキーボード/マウスが使用不可となる
 - 条件を満たせば、自ら管理者権限へ昇格し（.batファイル自体にはUACを自動表示するマニフェストが
   無いため）、キーボード用・マウス用の両方をインストールする
 - [監査ログ・通知機能](#監査ログ・通知機能)を既定で有効化する（内部的には

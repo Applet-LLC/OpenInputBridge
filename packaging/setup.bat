@@ -21,22 +21,26 @@ rem batch-level copy exists only so an obviously unsupported system fails fast, 
 rem showing a UAC prompt, instead of self-elevating first and then failing four times over
 rem (once per OpenInputBridgeSetup.exe call below).
 
-for /f %%A in ('powershell -NoProfile -Command "if ([Environment]::Is64BitOperatingSystem -and [System.Environment]::OSVersion.Version.Build -ge 22000) { 'OK' } else { 'NG' }"') do set OIB_VERCHECK=%%A
+rem x64: Windows 10 1607 (build 14393) or later; ARM64: Windows 11 (build 22000) or later.
+rem Win32_OperatingSystem.OSArchitecture reports the actual OS architecture ("64-bit" or "ARM
+rem 64-bit Processor", localized) regardless of this script's own (possibly emulated) process
+rem architecture, unlike %PROCESSOR_ARCHITECTURE%, and is available on Windows 10 1607 (whose
+rem .NET Framework 4.6.2 lacks RuntimeInformation.OSArchitecture, which needs 4.7.1+). Only the
+rem first word is kept: "ARM" on ARM64, otherwise "64" / "64-bit".
+for /f %%A in ('powershell -NoProfile -Command "(Get-CimInstance Win32_OperatingSystem).OSArchitecture"') do set OIB_OSARCH=%%A
+for /f %%A in ('powershell -NoProfile -Command "$b = [System.Environment]::OSVersion.Version.Build; $arm = '%OIB_OSARCH%' -like 'ARM*'; if (($arm -and $b -ge 22000) -or (-not $arm -and [Environment]::Is64BitOperatingSystem -and $b -ge 14393)) { 'OK' } else { 'NG' }"') do set OIB_VERCHECK=%%A
 if not "%OIB_VERCHECK%"=="OK" (
-    echo This is the wrong Windows version. It's for Windows 11.
+    echo This is the wrong Windows version. It's for Windows 10 ^(version 1607 or later, x64^) or Windows 11.
     pause
     exit /b 1
 )
 
 rem Driver installation (SetupInstallServicesFromInfSectionW, called from install.cpp) refuses to
-rem run from a process that isn't native to the host CPU architecture (ERROR_IN_WOW64) — an x64
+rem run from a process that isn't native to the host CPU architecture (ERROR_IN_WOW64) -- an x64
 rem OpenInputBridgeSetup.exe running under Windows' x64-on-ARM64 emulation cannot complete
 rem installation on an ARM64 host, confirmed on real hardware (see docs/DECISIONS.md's ARM64
-rem entry). [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture reports the
-rem actual OS architecture regardless of this script's own (possibly emulated) process
-rem architecture, unlike %PROCESSOR_ARCHITECTURE%.
-for /f %%A in ('powershell -NoProfile -Command "[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture"') do set OIB_OSARCH=%%A
-if "%OIB_OSARCH%"=="Arm64" (
+rem entry), so ARM64 hosts use the native OpenInputBridgeSetup-arm64.exe.
+if "%OIB_OSARCH%"=="ARM" (
     set OIB_EXE=OpenInputBridgeSetup-arm64.exe
 ) else (
     set OIB_EXE=OpenInputBridgeSetup.exe

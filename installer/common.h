@@ -91,17 +91,35 @@ bool IsRunningElevated();
 // is x64 or ARM64 (driver/keyboard/oib_kbd_arm64.vcxproj, driver/mouse/oib_mou_arm64.vcxproj —
 // the ARM64 .sys is native; OpenInputBridgeSetup.exe itself stays x64-only and simply runs
 // under Windows' own x64 emulation on an ARM64 host, same as any other x64 user-mode app), and
-// its build number is at least 22000 (Windows 11, original release). Windows 10 is NOT
-// supported, even recent builds of it (e.g. 22H2/build 19045): the driver has only ever been
-// built/tested against Windows 11, and installing this filter driver on Windows 10 has been
-// confirmed (see the 2026-09-01 entry in docs/DECISIONS.md, filed from
-// https://github.com/Applet-LLC/OpenInputBridge/issues/4) to leave the keyboard and mouse
-// completely unusable after reboot -- not just "maybe works". A kernel driver for a Windows
-// version/architecture combination it was never built or tested against can BSOD or silently
-// corrupt input handling, so this is checked before any install action proceeds (main.cpp's
-// --skip-version-check exists for the Pro/Subscription installers' own use, in case their own
-// MSI's CustomAction sequence needs to bypass this).
+// its build number is at least 14393 on x64 (Windows 10 1607) or 22000 on ARM64 (Windows 11).
+// On x64, Windows 10 gets a separate driver package (x64_win10\, KMDF 1.19 build, no
+// ExAllocatePool2) because the Windows 11 package is KMDF 1.33 and does not load on Windows 10:
+// its class-level upper filter failing to load leaves the keyboard and mouse dead (see the
+// 2026-09-01 entry in docs/DECISIONS.md, filed from
+// https://github.com/Applet-LLC/OpenInputBridge/issues/4, and its Windows 10 follow-up). A kernel
+// driver for a Windows version/architecture combination it was never tested against can BSOD or
+// silently corrupt input handling, so this is checked before any install action proceeds
+// (main.cpp's --skip-version-check exists for the Pro/Subscription installers' own use, in case
+// their own MSI's CustomAction sequence needs to bypass this).
 bool IsSupportedWindowsEnvironment();
+
+// Windows 11's first build number. The x64 driver package for anything older is the Windows 10
+// variant (see GetDriverPackageArchSubdir).
+constexpr unsigned long kWindows11BuildNumber = 22000;
+
+// CurrentBuildNumber from the registry, or 0 if it cannot be read.
+unsigned long GetWindowsBuildNumber();
+
+// Subfolder of <exeDir>\<PackageName>\ holding this machine's driver package: "arm64", "x64"
+// (Windows 11+) or "x64_win10" (Windows 10 x64, KMDF 1.19 build).
+const wchar_t* GetDriverPackageArchSubdir();
+
+// Stages / removes a driver package in the Driver Store. DiInstallDriverW (newdev.dll) and
+// DiUninstallDriverW (1703+) are resolved at run time: a static import of DiUninstallDriverW
+// makes the .exe fail to start (STATUS_ENTRYPOINT_NOT_FOUND) on Windows 10 1607. When missing,
+// falls back to SetupCopyOEMInfW / SetupUninstallOEMInfW (oemNN.inf found by CatalogFile).
+bool InstallDriverPackage(const wchar_t* infPath, int* needReboot);
+bool UninstallDriverPackage(const wchar_t* infPath, const wchar_t* packageName, int* needReboot);
 
 // True if this machine's *native* processor architecture (same GetNativeSystemInfo-based check
 // as IsSupportedWindowsEnvironment(), which is what gates this machine being supported at all)

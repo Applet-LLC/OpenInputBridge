@@ -20,9 +20,9 @@
 //
 // Every invocation (regardless of which of the above) is gated on
 // common.h's IsSupportedWindowsEnvironment() first, unless --skip-version-check is also passed
-// — this driver has only ever been built/tested for Windows 11+ on x64 or ARM64 (Windows 10 is
-// explicitly NOT supported; see that function's own comment and docs/DECISIONS.md's 2026-09-01
-// entry), and installing a kernel driver on an unsupported combination risks a BSOD or silent
+// — this driver is supported on Windows 10 1607+ (x64) and Windows 11+ (x64 or ARM64); see that
+// function's own comment for the exact floors and docs/DECISIONS.md), and installing a kernel
+// driver on an unsupported combination risks a BSOD or silent
 // input-handling corruption, not just "might not work". --skip-version-check exists for the
 // Pro/Subscription editions' own WiX installers, which call this executable from a CustomAction
 // sequence that may already have its own, equivalent precondition checks earlier in the UI flow.
@@ -141,7 +141,7 @@ const wchar_t* const kUsage =
     L"       OpenInputBridgeSetup.exe --list-allowed-processes\n"
     L"       OpenInputBridgeSetup.exe --verify-install\n";
 
-const wchar_t* const kUnsupportedEnvironmentMessage = L"This is the wrong Windows version. It's for Windows 11.\n";
+const wchar_t* const kUnsupportedEnvironmentMessage = L"This is the wrong Windows version. It's for Windows 10 (version 1607 or later, x64) or Windows 11.\n";
 
 } // namespace
 

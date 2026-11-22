@@ -7,6 +7,7 @@
 #include "common.h"
 
 #include <wincrypt.h>
+#include <setupapi.h>
 
 #include <string>
 #include <vector>
@@ -17,6 +18,7 @@
 #include <fstream>
 
 #pragma comment(lib, "Crypt32.lib")
+#pragma comment(lib, "Setupapi.lib")
 
 namespace OpenInputBridge {
 
@@ -69,19 +71,14 @@ DWORD GetNativeProcessorArchitecture()
 
 } // namespace
 
-bool IsSupportedWindowsEnvironment()
+unsigned long GetWindowsBuildNumber()
 {
-    DWORD architecture = GetNativeProcessorArchitecture();
-    if (architecture != PROCESSOR_ARCHITECTURE_AMD64 && architecture != PROCESSOR_ARCHITECTURE_ARM64) {
-        return false;
-    }
-
     HKEY key = nullptr;
     if (RegOpenKeyExW(
             HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0,
             KEY_QUERY_VALUE, &key
             ) != ERROR_SUCCESS) {
-        return false;
+        return 0;
     }
 
     wchar_t buildNumberText[32]{};
@@ -94,11 +91,37 @@ bool IsSupportedWindowsEnvironment()
     RegCloseKey(key);
 
     if (result != ERROR_SUCCESS || type != REG_SZ) {
+        return 0;
+    }
+
+    return wcstoul(buildNumberText, nullptr, 10);
+}
+
+bool IsSupportedWindowsEnvironment()
+{
+    DWORD architecture = GetNativeProcessorArchitecture();
+    if (architecture != PROCESSOR_ARCHITECTURE_AMD64 && architecture != PROCESSOR_ARCHITECTURE_ARM64) {
         return false;
     }
 
-    constexpr unsigned long kMinimumSupportedBuildNumber = 22000; // Windows 11, original release.
-    return wcstoul(buildNumberText, nullptr, 10) >= kMinimumSupportedBuildNumber;
+    // x64: Windows 10 1607 (14393) or later -- the Windows 10 driver variant (x64_win10\) is built
+    // against KMDF 1.19, the version in-box on 1607. ARM64: Windows 11 only (Windows 10 ARM64 has
+    // not been evaluated).
+    constexpr unsigned long kMinimumBuildNumberX64 = 14393;
+    constexpr unsigned long kMinimumBuildNumberArm64 = 22000;
+    const unsigned long minimumBuildNumber =
+        (architecture == PROCESSOR_ARCHITECTURE_ARM64) ? kMinimumBuildNumberArm64 : kMinimumBuildNumberX64;
+    return GetWindowsBuildNumber() >= minimumBuildNumber;
+}
+
+const wchar_t* GetDriverPackageArchSubdir()
+{
+    if (GetNativeProcessorArchitecture() == PROCESSOR_ARCHITECTURE_ARM64) {
+        return L"arm64";
+    }
+    // x64 below Windows 11 gets the KMDF 1.19 / Windows 10 variant: a KMDF 1.33 driver does not
+    // load on Windows 10 (its in-box KMDF is older), which leaves the keyboard and mouse dead.
+    return GetWindowsBuildNumber() < kWindows11BuildNumber ? L"x64_win10" : L"x64";
 }
 
 bool IsNativeArm64()
@@ -741,6 +764,100 @@ bool ScheduledTaskExists(const wchar_t* taskName)
 {
     std::wstring arguments = L"/Query /TN \"" + std::wstring(taskName) + L"\"";
     return RunSystem32Tool(L"schtasks.exe", arguments, /*suppressOutput=*/true) == 0;
+}
+
+} // namespace OpenInputBridge
+
+namespace OpenInputBridge {
+
+namespace {
+
+using DiDriverFn = BOOL(WINAPI*)(HWND, LPCWSTR, DWORD, PBOOL);
+
+DiDriverFn ResolveNewdev(const char* name)
+{
+    HMODULE module = LoadLibraryExW(L"newdev.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    return module ? reinterpret_cast<DiDriverFn>(GetProcAddress(module, name)) : nullptr;
+}
+
+} // namespace
+
+bool InstallDriverPackage(const wchar_t* infPath, int* needReboot)
+{
+    BOOL reboot = FALSE;
+    bool ok;
+
+    DiDriverFn fn = ResolveNewdev("DiInstallDriverW");
+    ok = fn && fn(nullptr, infPath, 0, &reboot) != FALSE;
+
+    if (!ok) {
+        // Windows 10 before 1903 has no primitive-driver support: DiInstallDriverW stages the
+        // package into the Driver Store (publishing it as oemNN.inf) and then fails with
+        // ERROR_SECTION_NOT_FOUND (0xE0000102) looking for a device-install section. Staging
+        // is all that's needed here (the service is registered separately from the staged
+        // INF), and SetupCopyOEMInfW is idempotent for an already-staged package.
+        ok = SetupCopyOEMInfW(infPath, nullptr, SPOST_PATH, 0, nullptr, 0, nullptr, nullptr) != FALSE;
+    }
+
+    if (needReboot) {
+        *needReboot = reboot ? 1 : 0;
+    }
+    return ok;
+}
+
+bool UninstallDriverPackage(const wchar_t* infPath, const wchar_t* packageName, int* needReboot)
+{
+    BOOL reboot = FALSE;
+
+    if (DiDriverFn fn = ResolveNewdev("DiUninstallDriverW")) {
+        bool ok = fn(nullptr, infPath, 0, &reboot) != FALSE;
+        if (needReboot) {
+            *needReboot = reboot ? 1 : 0;
+        }
+        return ok;
+    }
+
+    // Fallback: find %windir%\INF\oem*.inf published from this package (same CatalogFile).
+    wchar_t windir[MAX_PATH];
+    GetWindowsDirectoryW(windir, MAX_PATH);
+    std::filesystem::path infDir = std::filesystem::path(windir) / L"INF";
+    std::wstring wanted = L"catalogfile=" + std::wstring(packageName) + L".cat";
+    bool removedAny = false;
+    bool ok = true;
+
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(infDir, ec)) {
+        std::wstring name = entry.path().filename().wstring();
+        if (name.size() < 8 || _wcsnicmp(name.c_str(), L"oem", 3) != 0 ||
+            _wcsicmp(name.c_str() + name.size() - 4, L".inf") != 0) {
+            continue;
+        }
+
+        std::wifstream file(entry.path());
+        std::wstring line;
+        bool match = false;
+        while (std::getline(file, line)) {
+            std::wstring compact;
+            for (wchar_t c : line) {
+                if (!iswspace(c)) compact += static_cast<wchar_t>(towlower(c));
+            }
+            if (compact == wanted) { match = true; break; }
+        }
+        file.close();
+
+        if (match) {
+            if (SetupUninstallOEMInfW(name.c_str(), SUOI_FORCEDELETE, nullptr)) {
+                removedAny = true;
+            } else {
+                ok = false;
+            }
+        }
+    }
+
+    if (needReboot) {
+        *needReboot = 0;
+    }
+    return ok && removedAny;
 }
 
 } // namespace OpenInputBridge
