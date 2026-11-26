@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    WHQL 申請のための CodeQL 解析と DVL（Driver Verification Log）作成を、x64/ARM64 の両方、kbd/mou の両ドライバについて
+    同じ手順で実行する開発用ツール。配布しない。Applet-LLC/kasane の kasane-whql から派生。
+    ビルド対象（フルビルド）には含めない。使うときに、このプロジェクトを単独でビルドして実行する。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>OibWhql</RootNamespace>
+    <AssemblyName>oib-whql</AssemblyName>
+    <Platforms>AnyCPU;x64</Platforms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="oib-whql.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,11 @@
+{
+  "Edition": "oss",
+  "CodeQlHome": "E:\\codeql-home",
+  "CodeQlCmd": "E:\\codeql-home\\codeql-2.20.1\\codeql.cmd",
+  "CodeQlVersion": "2.20.1",
+  "QuerySuite": "microsoft/windows-drivers@1.8.0:windows-driver-suites/mustrun.qls",
+  "BuildEnvCmd": "K:\\BuildEnv\\SetupBuildEnv.cmd",
+  "DvlExe": "C:\\Program Files (x86)\\Windows Kits\\10\\Tools\\dvl\\dvl.exe",
+  "RepoDir": "",
+  "HlkLayout": "{driver}\\{arch}"
+}
