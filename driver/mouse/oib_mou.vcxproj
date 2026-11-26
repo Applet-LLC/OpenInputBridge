@@ -31,6 +31,15 @@ project's own mousefilter.c.
     <RootNamespace>$(MSBuildProjectName)</RootNamespace>
     <KMDF_VERSION_MAJOR>1</KMDF_VERSION_MAJOR>
     <KMDF_VERSION_MINOR>33</KMDF_VERSION_MINOR>
+    <!-- Windows 10 compatibility build: msbuild /p:OibWin10Compat=true. KMDF 1.19 is the version
+         in-box on Windows 10 1607, and a KMDF driver loads on any OS whose in-box library is the
+         same or newer (a 1.33 driver does not load on Windows 10 22H2's 1.31, which leaves the
+         keyboard and mouse dead because this is a class-level upper filter). The two
+         defines make driver.h's OibAlloc*Zero use ExAllocatePoolZero (ExAllocatePool2 does not
+         exist before Windows 10 2004). Output goes to x64\Release_Win10\ so the default
+         (Windows 11, WHQL-submitted) build's x64\Release\ is untouched. -->
+    <OibWin10CompatDefs Condition="'$(OibWin10Compat)'=='true'">OIB_WIN10_COMPAT;POOL_ZERO_DOWN_LEVEL_SUPPORT;</OibWin10CompatDefs>
+    <KMDF_VERSION_MINOR Condition="'$(OibWin10Compat)'=='true'">19</KMDF_VERSION_MINOR>
     <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
     <Platform Condition="'$(Platform)' == ''">x64</Platform>
   </PropertyGroup>
@@ -61,6 +70,8 @@ project's own mousefilter.c.
          OpenInputBridge.vcxproj's original comment; packaging/sign.mak hardcodes
          ..\driver\mouse\x64\$(Configuration)\ as this project's output location. -->
     <OutDir>$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)\</OutDir>
+    <OutDir Condition="'$(OibWin10Compat)'=='true'">$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)_Win10\</OutDir>
+    <IntDir Condition="'$(OibWin10Compat)'=='true'">$(MSBuildProjectDirectory)\$(Platform)\$(Configuration)_Win10\obj\</IntDir>
   </PropertyGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" />
@@ -87,7 +98,7 @@ project's own mousefilter.c.
            code page (e.g. Shift-JIS/932) misreads non-ASCII characters (em dashes, etc.)
            in comments and fails with C4819 (treated as error via TreatWarningAsError). -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>OIB_BUILD_MOUSE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OibWin10CompatDefs)OIB_BUILD_MOUSE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -103,7 +114,7 @@ project's own mousefilter.c.
       <ExceptionHandling>
       </ExceptionHandling>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>OIB_BUILD_MOUSE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OibWin10CompatDefs)OIB_BUILD_MOUSE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>

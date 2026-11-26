@@ -69,6 +69,8 @@
 // easy identification against other drivers' allocations when debugging).
 #define OIB_POOL_TAG 'BIO '
 
+#include "poolalloc.h"
+
 // Per-control-device context: identifies which \Device\interceptionNN slot this WDFDEVICE is
 // (this binary's own SlotIndex space — see slots.h), so ioctl.c's EvtIoDeviceControl can look
 // up the slot's assigned filter FDO (slots.c, M2) without re-deriving NN from the device name

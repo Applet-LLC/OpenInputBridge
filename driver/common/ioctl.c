@@ -133,7 +133,7 @@ OibCtlHandleGetHardwareId(
             // Caller's buffer is too small for the full property. Rather than failing
             // outright, fetch the full value into a temporary buffer and hand back as much
             // as fits — see docs/PROTOCOL.md ("呼び出し元バッファサイズに収まる範囲で返す").
-            PVOID tempBuffer = ExAllocatePool2(POOL_FLAG_PAGED, requiredLength, OIB_POOL_TAG);
+            PVOID tempBuffer = OibAllocPagedZero(requiredLength, OIB_POOL_TAG);
 
             if (tempBuffer == NULL) {
                 status = STATUS_INSUFFICIENT_RESOURCES;
@@ -389,8 +389,7 @@ OibCtlEvtFileCreate(
     // Non-paged: the capture queue is written to from OibDispatchKeyboardStroke/
     // OibDispatchMouseStroke, which can run at DISPATCH_LEVEL (the PS/2 port driver's
     // keyboard/mouse service callback chain runs there) — see slots.h.
-    fileContext->Queue = ExAllocatePool2(
-        POOL_FLAG_NON_PAGED,
+    fileContext->Queue = OibAllocNonPagedZero(
         OIB_CAPTURE_QUEUE_CAPACITY * sizeof(OIB_STROKE_RECORD),
         OIB_POOL_TAG
         );

@@ -1374,3 +1374,62 @@ hide中はクライアントが捕捉・注入する手段が存在しない。�
   （`ERROR_BUSY`、終了コード1）の実機確認。
 - 派生版（OpenInputBridge-Subscription: 同じドライバ修正を移植、OpenInputBridge-Pro: ドライバ
   バイナリとOibCtlの取り込みのみ）への展開は別途実施する。
+
+
+## 2026-11-23 Windows 10 x64 (1607以降) に対応する
+
+2026-09-01の判断(Windows 11を下限にした)を改め、x64のWindows 10 1607以降に対応する。
+OpenInputBridge-Subscriptionで先に実装し、実機で確認した内容をここへ移植した。
+
+### 入力不能の原因
+2026-09-01にIssue #4で報告された、Windows 10 22H2で再起動後にキーボードとマウスが使えなくなる件の原因は、
+KMDFのバージョンだった。配布中のWHQL版ドライバはKMDF 1.33でビルドしてあり、Windows 10 22H2の
+標準のKMDFは1.31なので、ロードできない(Wdf01000のイベント1、Kernel-PnPのイベント219)。
+クラスの`UpperFilters`に入るドライバなので、ロード失敗がキーボードとマウスの停止に直結する。
+KMDFの標準搭載バージョンは、1607が1.19、1703が1.21、1709が1.23、1803が1.25、1809が1.27、
+1903が1.29、2004以降が1.31。古いKMDFでビルドしたドライバは、新しいOSでもロードできる。
+
+### 構成
+Windows 11用のWHQLパッケージ(KMDF 1.33)は変更せず、Windows 10用のドライバを別に作る(KMDF 1.19、
+`ExAllocatePool2`を使わない)。ARM64はWindows 11のみ。Windows 10用ドライバは、HLKを通さず、
+構成証明署名(Attestation Signing)で署名する予定。
+
+- ドライバ: `OibWin10Compat=true`のとき、`OIB_WIN10_COMPAT`と`POOL_ZERO_DOWN_LEVEL_SUPPORT`を定義し、
+  KMDF 1.19にして、出力先を`x64\Release_Win10`にする。`driver/common/poolalloc.h`が
+  `ExAllocatePool2`と`ExAllocatePoolZero`を切り替える。`DriverEntry`で`ExInitializeDriverRuntime`を呼ぶ。
+- ソリューションには`oib_kbd_win10`と`oib_mou_win10`を別プロジェクトとして追加した
+  (`OibWin10Compat=true`を固定した複製。変更時は元のプロジェクトと両方を直す)。
+  フルビルドで、パッケージは`x64\Release_Win10\<名前>_win10\`にできる。
+- インストーラーは、build 22000未満のx64で`x64_win10`のパッケージを選ぶ
+  (`GetDriverPackageArchSubdir`)。OSの下限はx64が14393(1607)、ARM64が22000。
+- `packaging/sign.mak`: `all`はWindows 10用もEV署名して`Signed\<名前>d_win10\`に入れる。
+  `whql`は、`Signed\`に構成証明署名済みのパッケージが両方置いてあればそのまま使い、
+  なければビルド出力をEV署名して入れる(Windows 10ではテスト署名モードが要る)。
+- `packaging/setup.bat`: OSの判定を、x64は14393以上、ARM64は22000以上に変えた。
+  アーキテクチャは`Win32_OperatingSystem.OSArchitecture`で調べる
+  (1607の.NET Framework 4.6.2には`RuntimeInformation.OSArchitecture`がない)。
+- `packaging/Make-AttestationCab.ps1`: 構成証明署名の提出用CAB(`oib_kbd_w10.cab`、`oib_mou_w10.cab`)を作る。
+  ドライバーパッケージごとにサブフォルダを作る(ルートにファイルを置かない)。
+
+### 1607で見つかった問題(Subscription版で実機確認)
+- `DiUninstallDriverW`は1703以降のAPIで、静的にインポートするとインストーラーが起動直後に
+  `STATUS_ENTRYPOINT_NOT_FOUND`で落ちる。`DiInstallDriverW`と`DiUninstallDriverW`はnewdev.dllから
+  動的に解決し、ない場合は`SetupCopyOEMInfW`と`SetupUninstallOEMInfW`に切り替える。
+- 1903より前はprimitive driverに対応しておらず、`DiInstallDriverW`はステージングした後で
+  `ERROR_SECTION_NOT_FOUND`(0xE0000102)を返す。ステージングは済んでいるので、
+  `SetupCopyOEMInfW`を再実行して成功扱いにする。
+- エラーコードは16進に直して読む(3758096642は0xE0000102)。
+
+### identify3で入力が固まる件
+Windows 10でidentify3を動かすと、マウスをクリックしたときに全入力が止まる。ドライバの不具合ではない。
+コンソールの簡易編集モード(QuickEdit)で選択状態になると、コンソールへの出力が止まる。
+identify3は全キーとボタンを横取りして、表示してから書き戻す。表示のWriteFileが選択状態の解除を待ち、
+解除に要るマウスのUPやキー入力はidentify3が持ったままなので、全入力が止まる。
+簡易編集モードを切ると再現しなくなった(1607と22H2)。Windows 11は既定のターミナルがWindows Terminalで、
+この停止は起きない。入力を横取りして画面に出すツールは、簡易編集モードを切って動かす。
+
+### 確認の状況
+- OpenInputBridge-Subscription(同じコード)では、Windows 10 1607と22H2で、インストール、ドライバのロード、
+  アクティベート、アンインストールまで確認した。Windows 11 25H2でもWHQL版が選ばれることを確認した。
+- このリポジトリでは、ドライバ(Windows 10用)とインストーラーのビルド、`sign.mak`のドライラン、
+  `setup.bat`の判定のみ確認した。Windows 10の実機でのインストールは未確認。

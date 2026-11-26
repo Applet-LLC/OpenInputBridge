@@ -23,14 +23,12 @@
 
 #include "common.h"
 
-#include <newdev.h>
 #include <setupapi.h>
 
 #include <filesystem>
 #include <cstdio>
 #include <string>
 
-#pragma comment(lib, "Newdev.lib")
 #pragma comment(lib, "Setupapi.lib")
 
 namespace OpenInputBridge {
@@ -156,7 +154,7 @@ ULONG ResolveKeyboardSlotCount(DriverType type, std::optional<ULONG> requestedSl
 
 int RunInstallOne(const DriverInfo& driver, DriverType type, std::optional<ULONG> requestedSlots)
 {
-    const wchar_t* archSubdir = IsNativeArm64() ? L"arm64" : L"x64";
+    const wchar_t* archSubdir = GetDriverPackageArchSubdir();
 
     std::filesystem::path infPath = GetModuleDirectory() / driver.PackageName / archSubdir /
         (std::wstring(driver.PackageName) + L".inf");
@@ -207,9 +205,9 @@ int RunInstallOne(const DriverInfo& driver, DriverType type, std::optional<ULONG
         return 1;
     }
 
-    BOOL needReboot = FALSE;
+    int needReboot = 0;
 
-    if (!DiInstallDriverW(nullptr, infPath.c_str(), 0, &needReboot)) {
+    if (!InstallDriverPackage(infPath.c_str(), &needReboot)) {
         wprintf(L"[ERROR] DiInstallDriver failed: %lu\n", GetLastError());
         return 1;
     }

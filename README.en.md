@@ -103,9 +103,12 @@ None of these steps is necessary for WHQL-signed drivers.
 
 - Running setup.bat performs the installation. The following is what the batch file does.
 
-- It checks that the machine is x64 or ARM64 and Windows 11 or later (Windows 10 is **not supported**, even the latest 22H2.
-  If installed, the keyboard and mouse become unusable after a reboot). If the check fails,
-  it displays "This is the wrong Windows version. It's for Windows 11." and aborts on the spot
+- It checks that the machine is x64 Windows 10 (version 1607 or later) or x64/ARM64 Windows 11 or later
+  (ARM64 Windows 10 is not supported). If the check fails, it displays
+  "This is the wrong Windows version. It's for Windows 10 (version 1607 or later, x64) or Windows 11."
+  and aborts on the spot. On Windows 10 the Windows 10 driver (the `x64_win10` folder, built against
+  KMDF 1.19) is selected automatically. The Windows 11 driver (KMDF 1.33) cannot load on Windows 10,
+  whose in-box KMDF is older, and would leave the keyboard and mouse unusable
 - If the conditions are met, it elevates itself to administrator privileges (since a .bat file itself
   has no manifest that triggers UAC automatically) and installs both the keyboard and mouse drivers
 - It enables the [audit log and notification features](#audit-log-and-notification-features) by default (internally, it is just a simple

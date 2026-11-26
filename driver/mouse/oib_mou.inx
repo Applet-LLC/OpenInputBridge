@@ -8,13 +8,13 @@
 ; hardware ID. [DefaultInstall.NTamd64]/[DefaultInstall.NTarm64] stage oib_mou.sys into the
 ; driver store and register it as a SERVICE_KERNEL_DRIVER/SERVICE_SYSTEM_START service (see
 ; docs/PROTOCOL.md for why boot-early start matters here). Shared unchanged between the x64
-; (oib_mou.vcxproj) and ARM64 (oib_mou_arm64.vcxproj) builds — each stamps this same INF text
+; (oib_mou.vcxproj) and ARM64 (oib_mou_arm64.vcxproj) builds - each stamps this same INF text
 ; into its own package folder alongside its own compiled oib_mou.sys; the unused decorated
 ; section is simply ignored on the other architecture.
 ;
 ; Mouse half of the former single-binary OpenInputBridge.sys/Class=System driver (see
 ; docs/DECISIONS.md's 2026-07-30 entry): declaring Class=Mouse here (instead of System) is the
-; whole point of the split — it's what makes `pnputil /enum-drivers /class mouse` show this
+; whole point of the split - it's what makes `pnputil /enum-drivers /class mouse` show this
 ; package, and is expected to steer HLK toward the mouse-filter-appropriate test selection
 ; instead of the much larger generic System-class set. oib_kbd.inx is the Keyboard-class
 ; counterpart; the two are independent packages/services (installer/), not one INF trying to
@@ -26,29 +26,29 @@
 ; whatever we'd stage under the same base name. A naive same-named search for "our" staged
 ; mouse.inf_* (installer/install.cpp's FindStagedInfPath) can then match either one, causing
 ; SetupInstallServicesFromInfSectionW to fail against the wrong INF's layout
-; (ERROR_SECTION_NOT_FOUND) — confirmed on a real HLK test client for the keyboard side (see
+; (ERROR_SECTION_NOT_FOUND) - confirmed on a real HLK test client for the keyboard side (see
 ; docs/DECISIONS.md's 2026-08-02 entry, second one). A distinctive base name avoids the
 ; collision entirely.
 ;
-; No [Manufacturer] section: its presence — even empty — makes InfVerif treat this as a
+; No [Manufacturer] section: its presence - even empty - makes InfVerif treat this as a
 ; (broken) PnP-match INF instead ("error 1297: Device driver does not install on any devices,
 ; use primitive driver if this is intended"), which is exactly what led to this design. The
-; sibling Applet LLC mouaddid.inf (production, WHQL-signed) proves this combination — primitive
-; driver structure with Class=Mouse — passes InfVerif/Inf2Cat.
+; sibling Applet LLC mouaddid.inf (production, WHQL-signed) proves this combination - primitive
+; driver structure with Class=Mouse - passes InfVerif/Inf2Cat.
 ;
 ; No [DefaultUninstall] section: DiUninstallDriver reverses [DefaultInstall.NTamd64]'s actions
-; automatically — an explicit uninstall section is neither required nor wanted for a primitive
-; driver (see the Microsoft doc above, "レガシ互換性").
+; automatically - an explicit uninstall section is neither required nor wanted for a primitive
+; driver (see the Microsoft doc above, "Legacy compatibility").
 ;
 ; Deliberately does NOT AddReg the Mouse device setup class's UpperFilters here: InfVerif's
 ; DCH-compliance rule (required for primitive drivers, "error 1321: Registry root ... is not
 ; isolated to HKR") forbids an INF from writing to an absolute registry path outside the
-; driver's own HKR-relative scope — and a primitive driver, having no matched device, has no
+; driver's own HKR-relative scope - and a primitive driver, having no matched device, has no
 ; HKR context to be relative to in the first place. Registering as a *class-level* upper filter
 ; (affecting every mouse system-wide, not one matched device) is exactly the kind of
 ; system-wide side effect DCH isolation exists to prevent doing declaratively from an INF. So
 ; that step stays in installer/ as a direct registry-API call, done alongside (not instead of)
-; DiInstallDriver/DiUninstallDriver — see installer/common.cpp.
+; DiInstallDriver/DiUninstallDriver - see installer/common.cpp.
 
 [Version]
 Signature   = "$WINDOWS NT$"

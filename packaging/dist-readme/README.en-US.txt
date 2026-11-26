@@ -9,7 +9,7 @@ EV-signed.
 
 Requirements
 ------------
-- Windows 11 24H2 or later
+- Windows 11 24H2 or later, or Windows 10 (version 1607 or later, x64)
 - Administrator privileges for installation
 - Test signing mode
   Your environment must be configured to allow test-signed device
