@@ -63,8 +63,14 @@ internal static class Checks
     // Subsc のフォルダには Subsc が入り、OSS（Pro）のフォルダには入らない。
     public static CheckResult HlkFolder(Config c, string hlkDir)
     {
+        if (!Directory.Exists(hlkDir)) { var r0 = new CheckResult(); r0.Errors.Add($"HLK 版フォルダが無い: {hlkDir}"); return r0; }
+        return HlkFolderName(c, hlkDir);
+    }
+
+    // フォルダ名だけの検査（prepare は、フォルダを作る前にこれで版の取り違えを止める）。
+    public static CheckResult HlkFolderName(Config c, string hlkDir)
+    {
         var r = new CheckResult();
-        if (!Directory.Exists(hlkDir)) { r.Errors.Add($"HLK 版フォルダが無い: {hlkDir}"); return r; }
         var name = Path.GetFileName(hlkDir.TrimEnd('\\', '/'));
         var hasSubsc = name.Contains("Subsc", StringComparison.OrdinalIgnoreCase);
         if (c.IsSubsc && !hasSubsc) r.Errors.Add($"版が合わない: このリポジトリは Subsc だが、フォルダ名に Subsc が無い: {name}");

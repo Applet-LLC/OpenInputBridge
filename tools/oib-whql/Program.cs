@@ -9,9 +9,12 @@ using OibWhql;
 const string Usage = """
     使い方:
       oib-whql check  [--arch x64|arm64] [--dvl cli|manual]
+      oib-whql prepare (--hlk <HLK 版フォルダ> | --version <版>) [--arch x64|arm64] [--force]
       oib-whql run    --hlk <HLK 版フォルダ> [--arch x64|arm64] [--dvl cli|manual]
       oib-whql verify --hlk <HLK 版フォルダ> [--arch x64|arm64]
 
+    prepare: HLK 版フォルダを作り、署名前のドライバ（cat/inf/sys）とシンボル（pdb）を置く。run の前に 1 回実行する。
+             --version 1.04 なら、フォルダ名を「<今日の日付> OIB [Subsc ]1.04」にして、HlkRoot（既定 E:\HLK）の下に作る。
     版（OSS と Pro / Subsc）は、リポジトリごとに oib-whql.json の Edition で決まる。
     --layout "{arch}\{driver}": HLK 版フォルダの構成を一時的に変える（既定は oib-whql.json の HlkLayout）。
     --dvl cli（既定）: dvl.exe で DVL を作る。OIB は Code Analysis を使わないので、VS 拡張で作ったものと同じになる。
@@ -51,12 +54,17 @@ if (opt.TryGetValue("dvl", out var m))
 string hlk = "";
 if (cmd != "check")
 {
-    if (!opt.TryGetValue("hlk", out hlk!) || string.IsNullOrWhiteSpace(hlk)) { Console.Error.WriteLine("--hlk が必要"); return 2; }
+    opt.TryGetValue("hlk", out hlk!);
+    // prepare だけは、--version から版フォルダの名前を作れる（run と verify は、日が変わると名前がずれるので、--hlk を使う）。
+    if (string.IsNullOrWhiteSpace(hlk) && cmd == "prepare" && opt.TryGetValue("version", out var ver) && !string.IsNullOrWhiteSpace(ver))
+        hlk = cfg.HlkFolderFor(ver, DateTime.Now);
+    if (string.IsNullOrWhiteSpace(hlk)) { Console.Error.WriteLine(cmd == "prepare" ? "--hlk か --version が必要" : "--hlk が必要"); return 2; }
 }
 
 switch (cmd)
 {
     case "check": return Check();
+    case "prepare": return PrepareCmd();
     case "run": return Run();
     case "verify": return Verify();
     default: Console.Error.WriteLine(Usage); return 2;
@@ -71,6 +79,18 @@ int Check()
     r.Print(log, "");
     log.Line(r.Ok ? "前提の検査: OK" : "前提の検査: NG");
     return r.Ok ? 0 : 1;
+}
+
+int PrepareCmd()
+{
+    // 版の取り違え（OSS のフォルダに Subsc を置く等）を、フォルダを作る前に止める。
+    var name = Checks.HlkFolderName(cfg, hlk);
+    if (!name.Ok) { foreach (var e in name.Errors) Console.Error.WriteLine($"[NG] {e}"); return 1; }
+    Directory.CreateDirectory(hlk);
+    using var log = new RunLog(Path.Combine(hlk, "whql-run.log"));
+    log.Line($"prepare  版: {cfg.Edition}  リポジトリ: {cfg.RepoDir}  HLK: {hlk}");
+    var ok = Prepare.Run(cfg, log, targets, hlk, force: opt.ContainsKey("force"));
+    return ok ? 0 : 1;
 }
 
 int Run()
